@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MechanismParameters xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <MotorControlData>
+    {%- for cd in control_data %}
+    <MinimalMotorControlData name="{{ cd.name | member_var }}" pGain="{{ cd.p }}" iGain="{{ cd.i }}" dGain="{{ cd.d }}" fGain="{{ cd.f }}" iZone="{{ cd.integral_zone }}" sGain="{{ cd.static_friction_gain }}" vGain="{{ cd.velocity_gain }}" aGain="{{ cd.acceleration_gain }}" maxAcceleration="{{ cd.max_acceleration }}" cruiseVelocity="{{ cd.cruise_velocity }}" />
+    {%- endfor %}
+  </MotorControlData>
+</MechanismParameters>
