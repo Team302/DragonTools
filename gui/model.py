@@ -30,6 +30,14 @@ class ProjectModel:
 
     def update_app_settings(self, path):
         self.app_settings["last_project_path"] = path
+        self._save_app_settings()
+
+    def set_app_setting(self, key, value):
+        """Persist a single app-level setting, preserving the other keys."""
+        self.app_settings[key] = value
+        self._save_app_settings()
+
+    def _save_app_settings(self):
         try:
             with open(APP_SETTINGS_FILE, "w") as f:
                 json.dump(self.app_settings, f, indent=4)
