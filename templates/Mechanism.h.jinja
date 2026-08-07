@@ -35,6 +35,8 @@
 #include "mechanisms/controllers/ControlData.h"
 #include "state/IRobotStateChangeSubscriber.h"
 #include "state/RobotStateChanges.h"
+#include "utils/logging/signals/DragonDataLogger.h"
+#include "utils/logging/timing/DragonTimedClass.h"
 #include "RobotIdentifier.h"
 
 // Hardware Includes
@@ -45,14 +47,13 @@
 {%- if has_follower %}
 #include "ctre/phoenix6/controls/Follower.hpp"
 {%- endif %}
-#include "utils/logging/signals/DragonDataLogger.h"
 
 // {{ mechanism_name }} command classes
 {%- for state in states %}
 #include "mechanisms/{{ mechanism_name | lower }}/commands/{{ mechanism_name }}{{ state | state_class }}Command.h"
 {%- endfor %}
 
-class {{ mechanism_name }} : public BaseMechSubsystem, public IRobotStateChangeSubscriber, public DragonDataLogger
+class {{ mechanism_name }} : public BaseMechSubsystem, public IRobotStateChangeSubscriber, public DragonDataLogger, public DragonTimedClass
 {
 public:
     enum STATE_NAMES

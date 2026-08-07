@@ -46,6 +46,7 @@ using ctre::phoenix6::configs::TalonFXSConfiguration;
 using std::string;
 
 {{ mechanism_name }}::{{ mechanism_name }}(RobotIdentifier id) : BaseMechSubsystem(MechanismTypes::MECHANISM_TYPE::{{ mechanism_name | upper }}, std::string("{{ mechanism_name }}")),
+                                                                DragonTimedClass("{{ mechanism_name }}"),
 												                m_activeRobotId(id),
                                                                 m_stateMap(),
 												                m_autonCommand(wpi::cmd::None())

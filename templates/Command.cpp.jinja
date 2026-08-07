@@ -32,13 +32,13 @@ static constexpr {{ target.Unit | unit }} m_{{ target.HardwareName | camel }}Tar
 static constexpr bool m_{{ target.SolenoidName | camel }}Target{ {{ target.State | lower }} };
 {%- endif %}{%- endfor %}
 
-{{ command_name }}::{{ command_name }}({{ mechanism_name }} *mechanism) : m_mechanism(mechanism)
+{{ command_name }}::{{ command_name }}({{ mechanism_name }} *mechanism) : wpi::cmd::CommandHelper<DragonTimedCommand, {{ command_name }}>(mechanism), m_mechanism(mechanism)
 {
     AddRequirements(m_mechanism);
     SetName("{{ command_name | replace('Command', '') }}");
 }
 
-void {{ command_name }}::Initialize()
+void {{ command_name }}::Init()
 {
     m_mechanism->SetCurrentState({{ mechanism_name }}::{{ state_enum }});
     {% if state_data.motor_targets %}
@@ -60,7 +60,7 @@ void {{ command_name }}::Initialize()
     {%- endif %}
 }
 
-void {{ command_name }}::Execute()
+void {{ command_name }}::Run()
 {
 }
 

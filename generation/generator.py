@@ -10,6 +10,7 @@ as Jinja2 filters.
 """
 
 import os
+import re
 import datetime
 from jinja2 import Environment, FileSystemLoader
 
@@ -51,6 +52,50 @@ class DragonCodeGenerator():
     def generate(self, project_data):
         global_mechanisms = self._collect_mechanisms(project_data)
         current_year = datetime.datetime.now().year
+
+        cpp_dir = os.path.join(self.output_dir, "src", "main", "cpp")
+        mechanisms_dir = os.path.join(cpp_dir, "mechanisms")
+        os.makedirs(mechanisms_dir, exist_ok=True)
+        self._render_and_write(
+            "MechanismTypes.h.jinja",
+            {
+                "year": current_year,
+                "version": self.version,
+                "mechanisms": [mech.upper() for mech in sorted(global_mechanisms.keys())],
+            },
+            os.path.join(mechanisms_dir, "MechanismTypes.h"),
+        )
+        self._render_and_write(
+            "RobotIdentifier.h.jinja",
+            {
+                "year": current_year,
+                "version": self.version,
+                "robots": [
+                    {
+                        "robot_name": str(robot_id).upper(),
+                        "team_number": robot_data.get("team_number", 0),
+                    }
+                    for robot_id, robot_data in project_data.get("robots", {}).items()
+                ],
+            },
+            os.path.join(cpp_dir, "RobotIdentifier.h"),
+        )
+
+        self._render_and_write(
+            "RobotContainer.cpp.jinja",
+            {
+                "year": current_year,
+                "version": self.version,
+                "mechanisms": [
+                    {
+                        "name": mech_name,
+                        "container_include": f'mechanisms/{mech_name.lower()}/{mech_name}Container.h',
+                    }
+                    for mech_name in sorted(global_mechanisms.keys())
+                ],
+            },
+            os.path.join(cpp_dir, "RobotContainer.cpp"),
+        )
 
         for mech_name, mech_info in global_mechanisms.items():
             print(f"Generating Mechanism: {mech_name}")
