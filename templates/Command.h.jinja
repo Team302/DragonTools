@@ -32,8 +32,8 @@ namespace {{ mechanism_name }}Commands
     protected:
         void Init() override;
         void Run() override;
-        void End(bool interrupted) override;
-        bool IsFinished() override;
+        void Exit(bool interrupted) override;
+        bool IsDone() override;
 
     private:
         {{ mechanism_name }} *m_mechanism;
