@@ -87,8 +87,6 @@ class MechanismEditorWindow(QMainWindow):
         self.current_selection = None
         self.current_mech_data = None
 
-        self.setup_menu_bar()
-
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
@@ -174,27 +172,6 @@ class MechanismEditorWindow(QMainWindow):
     @property
     def current_project_path(self):
         return self.model.current_project_path
-
-    def setup_menu_bar(self):
-        menubar = self.menuBar()
-        file_menu = menubar.addMenu("File")
-        
-        new_action = file_menu.addAction("New Project")
-        new_action.triggered.connect(self.new_project)
-        
-        load_action = file_menu.addAction("Load Project (JSON)")
-        load_action.setShortcut("Ctrl+O")
-        load_action.triggered.connect(self.load_project)
-        
-        file_menu.addSeparator()
-        
-        save_action = file_menu.addAction("Save Project")
-        save_action.setShortcut("Ctrl+S")
-        save_action.triggered.connect(self.save_project)
-        
-        save_as_action = file_menu.addAction("Save Project As...")
-        save_as_action.setShortcut("Ctrl+Shift+S")
-        save_as_action.triggered.connect(self.save_project_as)
 
     # --- SETTINGS / FILE I/O ---
     def new_project(self):

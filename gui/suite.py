@@ -10,12 +10,15 @@ of its existing behavior. New tools can follow the same pattern.
 """
 
 from PyQt6.QtWidgets import (
+    QFileDialog,
     QMainWindow,
+    QMessageBox,
     QTabWidget,
     QWidget,
 )
 
 from .window import MechanismEditorWindow
+from .auton_builder import AutonBuilderWidget
 from .constants import VERSION
 
 
@@ -35,9 +38,10 @@ class DragonSuiteWindow(QMainWindow):
         self.mechanism_generator = MechanismEditorWindow()
         self.tabs.addTab(self.mechanism_generator, "Mechanism Generator")
 
-        # --- Tab 2: Auton Builder (blank placeholder for the next tool) ---
-        self.auton_builder = QWidget()
+        # --- Tab 2: Auton Builder ---
+        self.auton_builder = AutonBuilderWidget(self.mechanism_generator.model)
         self.tabs.addTab(self.auton_builder, "Auton Builder")
+        self._setup_suite_menu()
 
         # Restore the tab the user was last on, then persist future changes.
         # Settings live in the Mechanism Generator's model (tool_settings.json),
@@ -48,7 +52,54 @@ class DragonSuiteWindow(QMainWindow):
             self.tabs.setCurrentIndex(last_tab)
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
+    def _setup_suite_menu(self):
+        file_menu = self.menuBar().addMenu("File")
+        new_action = file_menu.addAction("New Project")
+        new_action.triggered.connect(self._new_project)
+        load_action = file_menu.addAction("Load Project (JSON)")
+        load_action.triggered.connect(self._load_project)
+        file_menu.addSeparator()
+        save_action = file_menu.addAction("Save Project")
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self._save_project)
+        save_as_action = file_menu.addAction("Save Project As...")
+        save_as_action.triggered.connect(self._save_project_as)
+
+        options_menu = self.menuBar().addMenu("Options")
+        select_path_action = options_menu.addAction("Select Choreo Path Folder...")
+        select_path_action.triggered.connect(self.auton_builder.select_choreo_folder)
+        update_field_action = options_menu.addAction("Update Field Drawing")
+        update_field_action.triggered.connect(self.auton_builder.refresh_field)
+
+    def _new_project(self):
+        self.mechanism_generator.new_project()
+        self.auton_builder.autons = []
+        self.auton_builder.zones = []
+        self.auton_builder.snippets = []
+        self.auton_builder.current_item = None
+        self.auton_builder.refresh_tree()
+        self.auton_builder.refresh_field()
+
+    def _load_project(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Project", "", "JSON Files (*.json)"
+        )
+        if not path:
+            return
+        self.mechanism_generator.model.load_project(path)
+        self.mechanism_generator.model.update_app_settings(path)
+        self.auton_builder._load_saved_data()
+        self.auton_builder.refresh_tree()
+        self.auton_builder.refresh_field()
+
+    def _save_project(self):
+        if self.auton_builder.save_to_project():
+            return
+        self.auton_builder.save_to_project_as()
+
+    def _save_project_as(self):
+        self.auton_builder.save_to_project_as()
+
     def _on_tab_changed(self, index):
         """Remember the active tab so the suite reopens to it next launch."""
         self._settings.set_app_setting("last_tab", index)
-
