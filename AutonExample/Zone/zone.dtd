@@ -13,9 +13,6 @@
     radius                  CDATA #IMPLIED                
 
     pathUpdateOption 	    ( DRIVE_TO_HUB | DRIVE_OVER_BUMP | DRIVE_TO_DEPOT | DRIVE_TO_OUTPOST | DRIVE_TO_TOWER | NOTHING ) "NOTHING"         
-    
-    launcherState		( STATE_OFF | STATE_IDLE | STATE_PREPARE_TO_LAUNCH ) "STATE_IDLE"
-    intakeState		    ( STATE_OFF | STATE_INTAKE | STATE_EXPEL ) "STATE_OFF"
 
     allianceColor ( RED | BLUE | BOTH ) "BOTH"
 
