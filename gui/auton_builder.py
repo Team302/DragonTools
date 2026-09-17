@@ -589,8 +589,6 @@ class AutonBuilderWidget(QWidget):
         fields = [
             ("id", ["DO_NOTHING", "HOLD_POSITION", "TRAJECTORY_DRIVE",
                     "RESET_POSITION", "RESET_POSITION_NO_VISION", "DRIVE_STOP_MECH"]),
-            ("delayOption", ["START"]),
-            ("visionAligment", ["UNKNOWN"]),
         ]
         for key, values in fields:
             combo = QComboBox()
@@ -605,13 +603,6 @@ class AutonBuilderWidget(QWidget):
         time_edit.setValue(float(primitive.get("time", 0.0)))
         time_edit.valueChanged.connect(lambda value: self._update_primitive("time", value))
         form.addRow("time", time_edit)
-
-        for key in ["headingOption", "heading"]:
-            edit = QLineEdit(str(primitive.get(key, "")))
-            edit.editingFinished.connect(
-                lambda field=edit, k=key: self._update_primitive(k, field.text())
-            )
-            form.addRow(key, edit)
 
         if primitive.get("id", "DO_NOTHING") == "TRAJECTORY_DRIVE":
             path_names = []
@@ -633,16 +624,6 @@ class AutonBuilderWidget(QWidget):
             )
             form.addRow("choreoname", path_combo)
 
-        for key, defaults in [
-            ("launcherState", ["STATE_OFF", "STATE_INITIALIZE", "STATE_IDLE", "STATE_PREPARE_TO_LAUNCH"]),
-            ("intakeState", ["STATE_OFF", "STATE_INTAKE", "STATE_EXPEL", "STATE_LOAD_HOPPER", "STATE_FORCE_INTAKE_AUTON"]),
-        ]:
-            combo = QComboBox()
-            combo.addItems(self._mechanism_state_options() or defaults)
-            combo.setCurrentText(str(primitive.get(key, defaults[0])))
-            combo.currentTextChanged.connect(lambda value, k=key: self._update_primitive(k, value))
-            form.addRow(key, combo)
-
     def _update_primitive(self, key, value):
         if not self.current_item or self.current_item["type"] != "primitive":
             return
@@ -657,10 +638,8 @@ class AutonBuilderWidget(QWidget):
 
     def _add_primitive(self, owner):
         owner.setdefault("primitives", []).append({
-            "id": "DO_NOTHING", "time": "0.0", "delayOption": "START",
-            "headingOption": "IGNORE", "heading": "0.0",
-            "visionAligment": "UNKNOWN", "launcherState": "STATE_IDLE",
-            "intakeState": "STATE_OFF", "zones": [],
+            "id": "DO_NOTHING", "time": "0.0",
+            "zones": [],
         })
         self._save_data()
         self.refresh_tree()
@@ -756,54 +735,6 @@ class AutonBuilderWidget(QWidget):
 
         self.field_scene.update()
 
+    #fill in with mechansim based on mechanism defintion
     def sync_dtd_with_mechanism(self):
-        if self.mechanism_model is None:
-            QMessageBox.information(self, "Mechanism sync", "No mechanism model is loaded yet.")
-            return
-
-        dtd_path = QFileDialog.getOpenFileName(self, "Select DTD", "", "DTD Files (*.dtd)")[0]
-        if not dtd_path:
-            return
-
-        mechanism_states = self._mechanism_state_options()
-        enum_values = ["STATE_OFF", "STATE_IDLE", "STATE_PREPARE_TO_LAUNCH"]
-        for state in mechanism_states:
-            raw = state.upper().replace("-", "_").replace(" ", "_")
-            enum_values.append(f"STATE_{raw}")
-
-        unique = []
-        for value in enum_values:
-            if value not in unique:
-                unique.append(value)
-
-        with open(dtd_path, "r", encoding="utf-8") as file:
-            text = file.read()
-
-        replaced = False
-        new_text = text
-
-        launcher_pattern = r"launcherState\s*\([^\)]*\)\s*\"STATE_IDLE\""
-        if launcher_pattern:
-            replacement = "launcherState      ( " + " | ".join(unique) + " ) \"STATE_IDLE\""
-            new_text = __import__("re").sub(launcher_pattern, replacement, new_text, count=1)
-            replaced = True
-
-        intake_pattern = r"intakeState\s*\([^\)]*\)\s*\"STATE_OFF\""
-        if intake_pattern:
-            intake_values = ["STATE_OFF", "STATE_INTAKE", "STATE_EXPEL", "STATE_LOAD_HOPPER", "STATE_FORCE_INTAKE_AUTON"]
-            for state in mechanism_states:
-                intake_values.append(f"STATE_{state.upper().replace('-', '_').replace(' ', '_')}")
-            intake_unique = []
-            for value in intake_values:
-                if value not in intake_unique:
-                    intake_unique.append(value)
-            replacement = "intakeState        ( " + " | ".join(intake_unique) + " ) \"STATE_OFF\""
-            new_text = __import__("re").sub(intake_pattern, replacement, new_text, count=1)
-            replaced = True
-
-        if replaced:
-            with open(dtd_path, "w", encoding="utf-8") as file:
-                file.write(new_text)
-            QMessageBox.information(self, "DTD synced", f"Updated {dtd_path} with mechanism state values.")
-        else:
-            QMessageBox.warning(self, "DTD sync skipped", "No launcherState/intakeState fields were found in this DTD.")
+        return
