@@ -632,8 +632,7 @@ class AutonBuilderWidget(QWidget):
             snippet = {
                 "name": os.path.splitext(name)[0],
                 "type": "snippet",
-                "file": name,
-                "primitives": [],
+                "sequence": [],
             }
             self._load_auton_children(root, snippet)
             self.snippets.append(snippet)
@@ -691,8 +690,7 @@ class AutonBuilderWidget(QWidget):
                 path = os.path.join(folder, self._xml_filename(auton.get("name"), "auton"))
                 self._write_xml(path, self._container_to_xml(auton), "auton.dtd")
             for snippet in self.snippets:
-                name = snippet.get("file") or self._xml_filename(snippet.get("name"), "snippet")
-                path = os.path.join(snippet_dir, os.path.basename(name))
+                path = os.path.join(snippet_dir, self._snippet_filename(snippet))
                 self._write_xml(path, self._container_to_xml(snippet), "auton.dtd")
             for zone in self.zones:
                 name = zone.get("filename") or self._xml_filename(zone.get("name"), "zone")
@@ -706,6 +704,10 @@ class AutonBuilderWidget(QWidget):
     def _xml_filename(name, fallback):
         base = (name or fallback).strip() or fallback
         return base if base.lower().endswith(".xml") else f"{base}.xml"
+
+    def _snippet_filename(self, snippet):
+        """A snippet's on-disk filename is derived from its name (name.xml)."""
+        return self._xml_filename(snippet.get("name"), "snippet")
 
     def _container_to_xml(self, container):
         """Build an ``<auton>`` element for an auton or snippet body."""
@@ -917,10 +919,25 @@ class AutonBuilderWidget(QWidget):
     # Editor helpers
     # ------------------------------------------------------------------ #
     def _clear_editor(self):
-        while self.editor_layout.count():
-            item = self.editor_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self._clear_layout(self.editor_layout)
+
+    def _clear_layout(self, layout):
+        """Recursively remove every widget and nested layout from ``layout``.
+
+        Widgets added via ``addLayout`` are parented to the editor panel, not to
+        the sub-layout, so clearing only top-level items would leave stale rows
+        (headers, Up/Down/Delete rows) on screen when switching selections.
+        """
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            child = item.layout()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+            elif child is not None:
+                self._clear_layout(child)
+                child.deleteLater()
 
     def _editor_title(self, text):
         lbl = QLabel(text)
@@ -1012,7 +1029,7 @@ class AutonBuilderWidget(QWidget):
 
     def add_new_snippet(self):
         name = f"NewSnippet_{len(self.snippets) + 1}"
-        self.snippets.append({"name": name, "type": "snippet", "file": f"{name}.xml", "sequence": []})
+        self.snippets.append({"name": name, "type": "snippet", "sequence": []})
         self._save_data()
         self.populate_tree(select_data={"type": "snippet", "index": len(self.snippets) - 1})
 
@@ -1078,14 +1095,6 @@ class AutonBuilderWidget(QWidget):
             lambda e=name_edit: self._apply_container_name(desc, container, e.text())
         )
         form.addRow("Name", name_edit)
-        if desc["type"] == "snippet":
-            # Only snippets use "file" (their XML filename + the <snippet file=...>
-            # reference key). Autons are keyed and written by name, so no file row.
-            file_edit = QLineEdit(str(container.get("file", "")))
-            file_edit.editingFinished.connect(
-                lambda e=file_edit: self._apply_field(container, "file", e.text())
-            )
-            form.addRow("File", file_edit)
         self.editor_layout.addWidget(props)
 
         self._section_header("Sequence")
@@ -1093,7 +1102,7 @@ class AutonBuilderWidget(QWidget):
         add_primitive = QPushButton("+ Primitive")
         add_primitive.clicked.connect(lambda: self._add_step(desc, "primitive"))
         buttons.addWidget(add_primitive)
-        add_snippet = QPushButton("+ Snippet Ref")
+        add_snippet = QPushButton("+ Snippet")
         add_snippet.clicked.connect(lambda: self._add_step(desc, "snippet"))
         buttons.addWidget(add_snippet)
         self.editor_layout.addLayout(buttons)
@@ -1143,7 +1152,7 @@ class AutonBuilderWidget(QWidget):
     def _render_primitive_editor(self, desc, primitive, inline=False):
         if not inline:
             self._editor_title(f"Primitive: {primitive.get('id', 'DO_NOTHING')}")
-        group = QGroupBox("Primitive (auton.dtd)")
+        group = QGroupBox("Primitive")
         form = QFormLayout(group)
         for attr in self._primitive_attrs():
             self._add_schema_field(
@@ -1244,17 +1253,19 @@ class AutonBuilderWidget(QWidget):
 
     def _render_snippet_ref_editor(self, desc, sref, inline=False):
         if not inline:
-            self._editor_title("Snippet Reference")
-        group = QGroupBox("Snippet Reference")
+            self._editor_title("Snippet")
+        group = QGroupBox("Snippet")
         form = QFormLayout(group)
         combo = NoScrollComboBox()
+        combo.setEditable(True)  # keep refs to snippets not present in this folder
         combo.addItem("")
-        combo.addItems([s.get("file", "") for s in self.snippets])
+        # Options are the snippets' filenames, derived from their names.
+        combo.addItems([self._snippet_filename(s) for s in self.snippets])
         combo.setCurrentText(str(sref.get("file", "")))
         combo.currentTextChanged.connect(
             lambda text: self._apply_snippet_ref_file(desc, sref, text)
         )
-        form.addRow("file", combo)
+        form.addRow("snippet", combo)
         self.editor_layout.addWidget(group)
 
     # -- schema-driven field widgets -- #
@@ -1517,31 +1528,88 @@ class AutonBuilderWidget(QWidget):
         self.field_scene.clear()
         self._draw_field()
 
-        selected_zone = None
         owner = None
         sel = self.current_selection
         if sel:
             kind = sel.get("type")
-            if kind == "zone":
-                selected_zone = self._resolve(sel)
-            elif kind in ("auton", "snippet"):
+            if kind in ("auton", "snippet"):
                 owner = self._resolve(sel)
-            elif kind == "step":
-                container = self.autons if sel["coll"] == "autons" else self.snippets
-                if 0 <= sel["owner"] < len(container):
-                    owner = container[sel["owner"]]
-            elif kind == "zoneref":
+            elif kind in ("step", "zoneref"):
                 container = self.autons if sel["coll"] == "autons" else self.snippets
                 if 0 <= sel["owner"] < len(container):
                     owner = container[sel["owner"]]
 
-        for zone in self.zones:
-            self._draw_zone(zone, interactive=(zone is selected_zone))
+        zones_to_draw, interactive_zone = self._zones_for_selection()
+        for zone in zones_to_draw:
+            self._draw_zone(zone, interactive=(zone is interactive_zone))
 
         if owner is not None:
             self._draw_paths(owner)
 
         self.field_view._fit()
+
+    def _zones_for_selection(self):
+        """Decide which zones the field shows for the current selection.
+
+        - Top level (a folder node or nothing selected): show every zone.
+        - A single zone selected: show just that zone, editable (draggable).
+        - An auton / snippet / step / zone-reference selected: show only the
+          zones referenced by that auton or snippet (including via the snippets
+          it calls). A selected zone-reference makes its target zone editable.
+        """
+        sel = self.current_selection
+        if not sel or sel.get("type") == "folder":
+            return list(self.zones), None
+
+        kind = sel["type"]
+        if kind == "zone":
+            zone = self._resolve(sel)
+            return ([zone] if zone is not None else []), zone
+
+        if kind in ("auton", "snippet"):
+            owner = self._resolve(sel)
+        else:  # step / zoneref carry coll + owner index
+            container = self.autons if sel.get("coll") == "autons" else self.snippets
+            owner = container[sel["owner"]] if 0 <= sel.get("owner", -1) < len(container) else None
+        if owner is None:
+            return [], None
+
+        filenames = self._referenced_zone_filenames(owner)
+        zones = [z for z in self.zones if z.get("filename") in filenames]
+
+        interactive = None
+        if kind == "zoneref":
+            ref = self._resolve(sel)
+            target = ref.get("filename") if ref else None
+            interactive = next((z for z in zones if z.get("filename") == target), None)
+        return zones, interactive
+
+    def _referenced_zone_filenames(self, container, _seen=None):
+        """Collect every zone filename referenced by a container's sequence.
+
+        Recurses into referenced snippets (guarding against cycles) so an auton
+        shows the zones used by the snippets it calls as well as its own.
+        """
+        if _seen is None:
+            _seen = set()
+        names = set()
+        for entry in container.get("sequence", []):
+            if entry.get("kind") == "primitive":
+                for zref in entry["data"].get("zones", []):
+                    filename = zref.get("filename")
+                    if filename:
+                        names.add(filename)
+            elif entry.get("kind") == "snippet":
+                filename = entry["data"].get("file")
+                if filename and filename not in _seen:
+                    _seen.add(filename)
+                    snippet = next(
+                        (s for s in self.snippets if self._snippet_filename(s) == filename),
+                        None,
+                    )
+                    if snippet is not None:
+                        names |= self._referenced_zone_filenames(snippet, _seen)
+        return names
 
     def _draw_field(self):
         boundary = QGraphicsRectItem(0, 0, FIELD_WIDTH, FIELD_HEIGHT)
