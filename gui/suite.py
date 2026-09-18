@@ -9,6 +9,7 @@ bar and status bar (it is a `QMainWindow`), so embedding it as a tab preserves a
 of its existing behavior. New tools can follow the same pattern.
 """
 
+from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
     QFileDialog,
     QMainWindow,
@@ -17,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .window import MechanismEditorWindow
+from .mechanism_builder import MechanismEditorWindow
 from .auton_builder import AutonBuilderWidget
 from .constants import VERSION
 
@@ -66,17 +67,33 @@ class DragonSuiteWindow(QMainWindow):
         save_as_action.triggered.connect(self._save_project_as)
 
         options_menu = self.menuBar().addMenu("Options")
+        select_auton_action = options_menu.addAction("Select Auton Files Folder...")
+        select_auton_action.triggered.connect(self.auton_builder.select_auton_folder)
         select_path_action = options_menu.addAction("Select Choreo Path Folder...")
         select_path_action.triggered.connect(self.auton_builder.select_choreo_folder)
         update_field_action = options_menu.addAction("Update Field Drawing")
         update_field_action.triggered.connect(self.auton_builder.refresh_field)
 
+        options_menu.addSeparator()
+        view_menu = options_menu.addMenu("Auton Editor View")
+        view_group = QActionGroup(self)
+        view_group.setExclusive(True)
+        inline_action = view_menu.addAction("Inline (full editors)")
+        inline_action.setCheckable(True)
+        inline_action.triggered.connect(lambda: self.auton_builder.set_view_mode("inline"))
+        list_action = view_menu.addAction("List (navigable)")
+        list_action.setCheckable(True)
+        list_action.triggered.connect(lambda: self.auton_builder.set_view_mode("list"))
+        view_group.addAction(inline_action)
+        view_group.addAction(list_action)
+        inline_action.setChecked(self.auton_builder.view_mode == "inline")
+        list_action.setChecked(self.auton_builder.view_mode == "list")
+
     def _new_project(self):
         self.mechanism_generator.new_project()
-        self.auton_builder.autons = []
-        self.auton_builder.zones = []
-        self.auton_builder.snippets = []
-        self.auton_builder.current_item = None
+        # Auton data is folder-based, independent of the mechanism project, so a
+        # new mechanism project just re-reads the current auton files folder.
+        self.auton_builder._load_from_source_folder()
         self.auton_builder.refresh_tree()
         self.auton_builder.refresh_field()
 
