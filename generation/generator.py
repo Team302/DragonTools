@@ -279,3 +279,98 @@ class DragonCodeGenerator():
         template = self.env.get_template(template_name)
         with open(out_path, "w") as f:
             f.write(template.render(data))
+
+    # --- Auton DTD generation ------------------------------------------------
+
+    def generate_auton_dtds(self, project_data, auton_source_dir):
+        """Copy the auton/zone DTDs and inject the project's mechanism states.
+
+        The source DTDs are treated as read-only templates: they are copied into
+        ``<output>/src/main/deploy/auton/`` (auton.dtd) and
+        ``.../deploy/auton/Zone/`` (zone.dtd) with one ``<mechanism>State``
+        attribute added per mechanism (an enumeration of that mechanism's
+        ``STATE_*`` names) so the deployed autons can carry mechanism data.
+
+        Returns the list of DTD paths written (empty if nothing was generated).
+        """
+        if not auton_source_dir or not os.path.isdir(auton_source_dir):
+            return []
+
+        state_fields = self._mechanism_state_fields(project_data)
+        if not state_fields:
+            return []
+
+        deploy_auton = os.path.join(
+            self.output_dir, "src", "main", "deploy", "auton"
+        )
+        written = []
+        written += self._copy_dtd_with_states(
+            os.path.join(auton_source_dir, "auton.dtd"),
+            os.path.join(deploy_auton, "auton.dtd"),
+            {"primitive": state_fields},
+        )
+        written += self._copy_dtd_with_states(
+            os.path.join(auton_source_dir, "Zone", "zone.dtd"),
+            os.path.join(deploy_auton, "Zone", "zone.dtd"),
+            {"zone": state_fields},
+        )
+        return written
+
+    def _mechanism_state_fields(self, project_data):
+        """Map ``camelCase(mechanism) + "State"`` -> that mechanism's STATE_* enums."""
+        fields = {}
+        for robot_data in project_data.get("robots", {}).values():
+            for mech_name, mech in robot_data.get("mechanisms", {}).items():
+                attr = f"{nm.camel_case(mech_name)}State"
+                options = fields.setdefault(attr, [])
+                for state in mech.get("states", []):
+                    if isinstance(state, dict) and state.get("name"):
+                        enum = nm.state_enum(state["name"])
+                        if enum not in options:
+                            options.append(enum)
+        return {attr: opts for attr, opts in fields.items() if opts}
+
+    def _copy_dtd_with_states(self, src_path, dest_path, element_fields):
+        """Copy one DTD to ``dest_path`` with mechanism-state attrs injected."""
+        if not os.path.isfile(src_path):
+            return []
+        with open(src_path, "r", encoding="utf-8") as f:
+            text = f.read()
+        for element, fields in element_fields.items():
+            text = self._inject_state_attrs(text, element, fields)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        with open(dest_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return [dest_path]
+
+    @staticmethod
+    def _inject_state_attrs(dtd_text, element, state_fields):
+        """Add/refresh ``*State`` attribute declarations in an element's ATTLIST.
+
+        Any previously injected ``*State`` attributes are stripped first so
+        regenerating is idempotent. If the element has no ATTLIST, the text is
+        returned unchanged.
+        """
+        strip_state = re.compile(
+            r"\s*\w+State\s+(?:\([^)]*\)|CDATA|NMTOKENS?|IDREFS?|ID)\s*"
+            r'(?:#REQUIRED|#IMPLIED|#FIXED\s*"[^"]*"|"[^"]*")?',
+            re.DOTALL,
+        )
+        injected_lines = []
+        for attr, options in state_fields.items():
+            enum = " ( " + " | ".join(options) + " )"
+            injected_lines.append(f"\t\t  {attr}\t\t{enum} #IMPLIED")
+        injection = "\n".join(injected_lines)
+
+        block = re.compile(
+            r"(<!ATTLIST\s+" + re.escape(element) + r"\b)(.*?)(>)", re.DOTALL
+        )
+
+        def repl(match):
+            head, body, close = match.group(1), match.group(2), match.group(3)
+            body = strip_state.sub("", body)
+            body = body.rstrip() + "\n" + injection + "\n"
+            return head + body + close
+
+        new_text, count = block.subn(repl, dtd_text)
+        return new_text if count else dtd_text

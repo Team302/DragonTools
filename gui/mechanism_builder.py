@@ -1026,7 +1026,19 @@ class MechanismEditorWindow(QMainWindow):
                 print("Starting code generation...") 
                 generator = DragonCodeGenerator(version=VERSION) 
                 generator.generate(self.project_data)
-                QMessageBox.information(self, "Success", "Code generated successfully!")
+
+                # If an auton files folder is selected and contains the DTDs,
+                # copy them into deploy/auton/ with the mechanism states injected.
+                auton_dir = self.model.app_settings.get("auton_source_path", "")
+                dtds = generator.generate_auton_dtds(self.project_data, auton_dir)
+
+                message = "Code generated successfully!"
+                if dtds:
+                    message += (
+                        f"\n\nAlso wrote {len(dtds)} auton DTD(s) with mechanism "
+                        "states into deploy/auton/."
+                    )
+                QMessageBox.information(self, "Success", message)
             except Exception as e:
                 print(f"Error: {e}") 
                 QMessageBox.critical(self, "Error", f"Failed to generate code:\n{str(e)}")
