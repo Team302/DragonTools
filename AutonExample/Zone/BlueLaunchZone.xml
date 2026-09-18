@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE auton SYSTEM "zone.dtd">
 <auton>
-    <zone x1_rect="0.00" y1_rect="0.00" x2_rect="4.0" y2_rect="8.10" allianceColor="BLUE" launcherState="STATE_PREPARE_TO_LAUNCH" />
+    <zone x1_rect="0.0" y1_rect="0.0" x2_rect="3.555" y2_rect="8.1" allianceColor="BLUE" launcherState="STATE_PREPARE_TO_LAUNCH" />
 </auton>

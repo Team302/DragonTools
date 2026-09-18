@@ -71,8 +71,6 @@ class DragonSuiteWindow(QMainWindow):
         select_auton_action.triggered.connect(self.auton_builder.select_auton_folder)
         select_path_action = options_menu.addAction("Select Choreo Path Folder...")
         select_path_action.triggered.connect(self.auton_builder.select_choreo_folder)
-        update_field_action = options_menu.addAction("Update Field Drawing")
-        update_field_action.triggered.connect(self.auton_builder.refresh_field)
 
         options_menu.addSeparator()
         view_menu = options_menu.addMenu("Auton Editor View")

@@ -30,7 +30,7 @@ import json
 import xml.etree.ElementTree as ET
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -39,8 +39,10 @@ from PyQt6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsPathItem,
+    QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsScene,
+    QGraphicsTextItem,
     QGraphicsView,
     QGroupBox,
     QHBoxLayout,
@@ -72,10 +74,10 @@ except Exception:  # pragma: no cover - fallback if generation is unavailable
         return parts[0].lower() + "".join(p.capitalize() for p in parts[1:])
 
 
-# 2024 Crescendo field geometry (metres). The choreo ``.traj`` files reference
-# this same rectangle, so paths and zones line up with the drawing.
-FIELD_WIDTH = 16.541
-FIELD_HEIGHT = 8.211
+# FRC field geometry (metres). Matches the Choreo field JSON and the values the
+# choreo ``.traj`` files reference, so paths, zones and the field image line up.
+FIELD_WIDTH = 16.541   # field length along X
+FIELD_HEIGHT = 8.0692  # field width along Y
 
 # Attributes that should be edited as numbers regardless of the DTD's CDATA type.
 NUMERIC_ATTRS = {
@@ -88,6 +90,21 @@ RECT_KEYS = ["x1_rect", "y1_rect", "x2_rect", "y2_rect"]
 CIRCLE_KEYS = ["circlex", "circley", "radius"]
 
 HANDLE_SIZE = 0.28  # metres
+ZONE_LABEL_SCALE = 0.02  # shrink pixel-sized text into field metres
+
+
+def _make_zone_label(text, parent):
+    """Create a centred, non-interactive name label as a child of a zone item.
+
+    Being a child means it moves and is deleted together with the zone item, so
+    dragging the zone drags its name too.
+    """
+    label = QGraphicsTextItem(text, parent)
+    label.setDefaultTextColor(QColor(255, 255, 255))
+    label.setScale(ZONE_LABEL_SCALE)
+    label.setAcceptedMouseButtons(Qt.MouseButton.NoButton)  # clicks fall through
+    label.setZValue(16)
+    return label
 
 
 # --------------------------------------------------------------------------- #
@@ -184,6 +201,28 @@ class FieldView(QGraphicsView):
         self._fit()
 
 
+class FieldWindow(QWidget):
+    """A separate, movable top-level window that hosts the field view.
+
+    Emits ``on_close`` when the user closes it so the builder can re-dock the
+    field back into the tab.
+    """
+
+    def __init__(self, on_close, parent=None):
+        super().__init__(parent)
+        self._on_close = on_close
+        self.setWindowFlag(Qt.WindowType.Window, True)
+        self.setWindowTitle("Auton Builder - Field")
+        self.resize(1000, 560)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+    def closeEvent(self, event):
+        if self._on_close is not None:
+            self._on_close()
+        super().closeEvent(event)
+
+
 class ResizeHandle(QGraphicsRectItem):
     """A small square that resizes its owner zone item when dragged."""
 
@@ -230,6 +269,16 @@ class ZoneRectItem(QGraphicsRectItem):
         self.setCursor(Qt.CursorShape.SizeAllCursor)
         self.handle = ResizeHandle(self)
         self.handle.setPos(w, h)
+        self.label = _make_zone_label(zone.get("name", ""), self)
+        self._center_label()
+
+    def _center_label(self):
+        rect = self.rect()
+        br = self.label.boundingRect()
+        self.label.setPos(
+            rect.width() / 2 - br.width() * (ZONE_LABEL_SCALE / 2),
+            rect.height() / 2 - br.height() * (ZONE_LABEL_SCALE / 2),
+        )
 
     def _write_geometry(self):
         rect = self.rect()
@@ -258,6 +307,7 @@ class ZoneRectItem(QGraphicsRectItem):
         w = min(max(value.x(), 0.2), FIELD_WIDTH - self.pos().x())
         h = min(max(value.y(), 0.2), FIELD_HEIGHT - self.pos().y())
         self.setRect(0, 0, w, h)
+        self._center_label()
         self._write_geometry()
         return QPointF(w, h)
 
@@ -282,6 +332,16 @@ class ZoneCircleItem(QGraphicsEllipseItem):
         self.setCursor(Qt.CursorShape.SizeAllCursor)
         self.handle = ResizeHandle(self)
         self.handle.setPos(r, 0)
+        self.label = _make_zone_label(zone.get("name", ""), self)
+        self._center_label()
+
+    def _center_label(self):
+        br = self.label.boundingRect()
+        # Local rect is centred on (0, 0), so centre the label there too.
+        self.label.setPos(
+            -br.width() * (ZONE_LABEL_SCALE / 2),
+            -br.height() * (ZONE_LABEL_SCALE / 2),
+        )
 
     def _radius(self):
         return self.rect().width() / 2.0
@@ -325,6 +385,8 @@ class AutonBuilderWidget(QWidget):
         self._zone_spinboxes = {}
         self._to_select = None
         self.view_mode = "inline"  # "inline" (full editors) or "list" (navigable)
+        self._field_asset = None   # cache: (QPixmap, meta) once loaded, or False
+        self.field_window = None   # separate pop-out window, or None when docked
 
         self.dtd_paths = {}
         self.schema_auton = {}
@@ -438,13 +500,29 @@ class AutonBuilderWidget(QWidget):
         # Right (creator panel): field on top, editor below
         creator = QSplitter(Qt.Orientation.Vertical)
         creator.setChildrenCollapsible(False)
-        field_wrap = QWidget()
-        field_layout = QVBoxLayout(field_wrap)
-        field_title = QLabel("Field Visualization")
-        field_title.setStyleSheet("font-weight: bold; color: #E0E0E0; padding: 2px;")
-        field_layout.addWidget(field_title)
-        field_layout.addWidget(self.field_view)
-        creator.addWidget(field_wrap)
+        self.creator_splitter = creator
+        self.field_wrap = QWidget()
+        field_layout = QVBoxLayout(self.field_wrap)
+        header = QHBoxLayout()
+        self.field_title = QLabel("Field Visualization")
+        self.field_title.setStyleSheet("font-weight: bold; color: #E0E0E0; padding: 2px;")
+        header.addWidget(self.field_title)
+        header.addStretch()
+        self.btn_popout = QPushButton("Pop Out \u2197")
+        self.btn_popout.setToolTip("Show the field in a separate, movable window")
+        self.btn_popout.clicked.connect(self.toggle_field_window)
+        header.addWidget(self.btn_popout)
+        field_layout.addLayout(header)
+
+        # The field lives in a swappable host so it can be moved to a pop-out
+        # window; when popped out this host is hidden and the editor expands.
+        self.field_area = QWidget()
+        self.field_area_layout = QVBoxLayout(self.field_area)
+        self.field_area_layout.setContentsMargins(0, 0, 0, 0)
+        self.field_area_layout.addWidget(self.field_view)
+        field_layout.addWidget(self.field_area, 1)
+
+        creator.addWidget(self.field_wrap)
         creator.addWidget(self.editor_scroll)
         creator.setSizes([420, 380])
         splitter.addWidget(creator)
@@ -466,6 +544,69 @@ class AutonBuilderWidget(QWidget):
         self.path_label.setFixedHeight(self.path_label.fontMetrics().height() + 4)
         root.addWidget(self.path_label, 0)
         self._update_status_label()
+
+    # ------------------------------------------------------------------ #
+    # Pop-out field window
+    # ------------------------------------------------------------------ #
+    def toggle_field_window(self):
+        if self.field_window is None:
+            self.pop_out_field()
+        else:
+            self.dock_field()
+
+    def pop_out_field(self):
+        """Move the field view into a separate window and expand the editor."""
+        if self.field_window is not None:
+            self.field_window.raise_()
+            self.field_window.activateWindow()
+            return
+        # Remember the current split so we can restore it when docking back.
+        self._creator_sizes_docked = self.creator_splitter.sizes()
+
+        self.field_area_layout.removeWidget(self.field_view)
+        self.field_window = FieldWindow(self._on_field_window_closed, parent=self.window())
+        self.field_window.layout().addWidget(self.field_view)
+
+        # Collapse the field area so the editor takes over the vertical space.
+        self.field_area.hide()
+        self.field_title.setText("Field Visualization (popped out)")
+        total = sum(self._creator_sizes_docked) or 800
+        header_h = self.field_wrap.sizeHint().height()
+        self.creator_splitter.setSizes([header_h, max(total - header_h, 1)])
+
+        self.btn_popout.setText("Dock Field \u2199")
+        self.field_window.show()
+        self.field_window.raise_()
+        self.field_window.activateWindow()
+        self.field_view.show()
+        self.refresh_field()
+
+    def dock_field(self, _from_close=False):
+        """Return the field view from the pop-out window back into the tab."""
+        if self.field_window is None:
+            return
+        window = self.field_window
+        self.field_window = None
+
+        window.layout().removeWidget(self.field_view)
+        self.field_area_layout.addWidget(self.field_view)
+        self.field_area.show()
+        self.field_view.show()
+        self.field_title.setText("Field Visualization")
+        self.creator_splitter.setSizes(
+            getattr(self, "_creator_sizes_docked", None) or [420, 380]
+        )
+
+        self.btn_popout.setText("Pop Out \u2197")
+        if not _from_close:
+            window.close()
+        window.deleteLater()
+        self.refresh_field()
+
+    def _on_field_window_closed(self):
+        # The user closed the pop-out window directly: re-dock the field.
+        if self.field_window is not None:
+            self.dock_field(_from_close=True)
 
     def _update_status_label(self):
         auton = self.auton_source_path or "(none - use Options -> Select Auton Files Folder)"
@@ -609,7 +750,7 @@ class AutonBuilderWidget(QWidget):
                 root = ET.parse(path).getroot()
             except Exception:
                 continue
-            zone = {"name": os.path.splitext(name)[0], "type": "zone", "filename": name}
+            zone = {"name": os.path.splitext(name)[0], "type": "zone"}
             zone_el = root.find("zone")
             if zone_el is not None:
                 for key, value in zone_el.attrib.items():
@@ -693,8 +834,7 @@ class AutonBuilderWidget(QWidget):
                 path = os.path.join(snippet_dir, self._snippet_filename(snippet))
                 self._write_xml(path, self._container_to_xml(snippet), "auton.dtd")
             for zone in self.zones:
-                name = zone.get("filename") or self._xml_filename(zone.get("name"), "zone")
-                path = os.path.join(zone_dir, os.path.basename(name))
+                path = os.path.join(zone_dir, self._zone_filename(zone))
                 self._write_xml(path, self._zone_to_xml(zone), "zone.dtd")
         except Exception as exc:  # pragma: no cover - filesystem errors
             return False, f"Failed to write XML files:\n{exc}"
@@ -708,6 +848,13 @@ class AutonBuilderWidget(QWidget):
     def _snippet_filename(self, snippet):
         """A snippet's on-disk filename is derived from its name (name.xml)."""
         return self._xml_filename(snippet.get("name"), "snippet")
+
+    def _zone_filename(self, zone):
+        """A zone's on-disk filename is derived from its name (name.xml).
+
+        This is also the value used by ``<zone filename=...>`` references.
+        """
+        return self._xml_filename(zone.get("name"), "zone")
 
     def _container_to_xml(self, container):
         """Build an ``<auton>`` element for an auton or snippet body."""
@@ -1019,7 +1166,7 @@ class AutonBuilderWidget(QWidget):
     def add_new_zone(self):
         name = f"NewZone_{len(self.zones) + 1}"
         self.zones.append({
-            "name": name, "type": "zone", "filename": f"{name}.xml",
+            "name": name, "type": "zone",
             "zone_shape": "rectangle",
             "x1_rect": 1.0, "y1_rect": 1.0, "x2_rect": 3.0, "y2_rect": 3.0,
             "pathUpdateOption": "NOTHING", "allianceColor": "BOTH",
@@ -1174,7 +1321,7 @@ class AutonBuilderWidget(QWidget):
             row = QHBoxLayout()
             combo = NoScrollComboBox()
             combo.addItem("")
-            combo.addItems([z.get("filename", "") for z in self.zones])
+            combo.addItems([self._zone_filename(z) for z in self.zones])
             combo.setCurrentText(str(zref.get("filename", "")))
             combo.currentTextChanged.connect(
                 lambda text, d=desc, r=zref: self._apply_zoneref_filename(d, r, text)
@@ -1189,7 +1336,7 @@ class AutonBuilderWidget(QWidget):
     def _render_zone_editor(self, desc, zone, inline=False):
         if not inline:
             self._editor_title(f"Zone: {zone.get('name', '')}")
-        group = QGroupBox("Zone (zone.dtd)")
+        group = QGroupBox("Zone")
         form = QFormLayout(group)
 
         name_edit = QLineEdit(str(zone.get("name", "")))
@@ -1197,11 +1344,6 @@ class AutonBuilderWidget(QWidget):
             lambda e=name_edit: self._apply_zone_name(desc, zone, e.text())
         )
         form.addRow("Name", name_edit)
-        file_edit = QLineEdit(str(zone.get("filename", "")))
-        file_edit.editingFinished.connect(
-            lambda e=file_edit: self._apply_field(zone, "filename", e.text())
-        )
-        form.addRow("filename", file_edit)
 
         shape = str(zone.get("zone_shape", "rectangle")).lower()
         if shape not in {"rectangle", "circle"}:
@@ -1243,7 +1385,7 @@ class AutonBuilderWidget(QWidget):
         form = QFormLayout(group)
         combo = NoScrollComboBox()
         combo.addItem("")
-        combo.addItems([z.get("filename", "") for z in self.zones])
+        combo.addItems([self._zone_filename(z) for z in self.zones])
         combo.setCurrentText(str(zref.get("filename", "")))
         combo.currentTextChanged.connect(
             lambda text: self._apply_zoneref_filename(desc, zref, text)
@@ -1575,13 +1717,13 @@ class AutonBuilderWidget(QWidget):
             return [], None
 
         filenames = self._referenced_zone_filenames(owner)
-        zones = [z for z in self.zones if z.get("filename") in filenames]
+        zones = [z for z in self.zones if self._zone_filename(z) in filenames]
 
         interactive = None
         if kind == "zoneref":
             ref = self._resolve(sel)
             target = ref.get("filename") if ref else None
-            interactive = next((z for z in zones if z.get("filename") == target), None)
+            interactive = next((z for z in zones if self._zone_filename(z) == target), None)
         return zones, interactive
 
     def _referenced_zone_filenames(self, container, _seen=None):
@@ -1612,16 +1754,78 @@ class AutonBuilderWidget(QWidget):
         return names
 
     def _draw_field(self):
+        if self._draw_field_image():
+            # A thin outline over the real field image marks the legal rectangle.
+            boundary = QGraphicsRectItem(0, 0, FIELD_WIDTH, FIELD_HEIGHT)
+            boundary.setPen(QPen(QColor(255, 255, 255, 120), 0.03))
+            boundary.setZValue(1)
+            self.field_scene.addItem(boundary)
+            return
+
+        # Fallback (image missing): simple rectangle + centre line.
         boundary = QGraphicsRectItem(0, 0, FIELD_WIDTH, FIELD_HEIGHT)
         boundary.setPen(QPen(QColor(210, 210, 210), 0.06))
         boundary.setBrush(QBrush(QColor(24, 42, 30)))
         self.field_scene.addItem(boundary)
-
         mid = self.field_scene.addLine(
             FIELD_WIDTH / 2, 0, FIELD_WIDTH / 2, FIELD_HEIGHT,
             QPen(QColor(120, 120, 120), 0.04),
         )
         mid.setZValue(1)
+
+    def _load_field_asset(self):
+        """Load and cache the Choreo field image + its JSON metadata.
+
+        Returns ``(QPixmap, meta_dict)`` or ``None`` if the asset is unavailable.
+        """
+        if self._field_asset is not None:
+            return self._field_asset or None
+        base = os.path.join(self._repo_root(), "assets", "fields")
+        json_path = os.path.join(base, "2026-field.json")
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            png_path = os.path.join(base, meta.get("field-image", "2026-field.png"))
+            pixmap = QPixmap(png_path)
+            if pixmap.isNull():
+                raise ValueError("field image failed to load")
+            self._field_asset = (pixmap, meta)
+        except Exception:
+            self._field_asset = False  # remember the failure; use the fallback
+            return None
+        return self._field_asset
+
+    def _draw_field_image(self):
+        """Draw the real FRC field PNG behind everything, in field metres.
+
+        The field JSON maps the image's pixel corners to the field rectangle;
+        we scale/position the pixmap so those corners land on (0,0)-(W,H) in the
+        Y-flipped scene, exactly like Choreo's ``JSONFieldImage``.
+        """
+        asset = self._load_field_asset()
+        if asset is None:
+            return False
+        pixmap, meta = asset
+        try:
+            corners = meta["field-corners"]
+            left_px, top_px = corners["top-left"]
+            right_px, _bottom_px = corners["bottom-right"]
+            field_len_m = float(meta["field-size"][0])
+            span_px = float(right_px - left_px)
+            if span_px <= 0:
+                return False
+            m_per_px = field_len_m / span_px
+        except (KeyError, IndexError, TypeError, ValueError):
+            return False
+
+        item = QGraphicsPixmapItem(pixmap)
+        item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+        item.setScale(m_per_px)
+        # Place image so its field top-left pixel lands at scene (0, 0).
+        item.setPos(-left_px * m_per_px, -top_px * m_per_px)
+        item.setZValue(-10)
+        self.field_scene.addItem(item)
+        return True
 
     def _draw_zone(self, zone, interactive):
         shape = str(zone.get("zone_shape", "")).lower()
@@ -1630,7 +1834,6 @@ class AutonBuilderWidget(QWidget):
         if interactive:
             item = ZoneCircleItem(zone, self) if is_circle else ZoneRectItem(zone, self)
             self.field_scene.addItem(item)
-            self._add_zone_label(zone, is_circle, highlight=True)
             return
 
         pen = QPen(QColor(90, 160, 120), 0.03)

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE auton SYSTEM "zone.dtd">
 <auton>
-    <zone x1_rect="5.21" y1_rect="3.50" x2_rect="8.23" y2_rect="4.50" pathUpdateOption="DRIVE_OVER_BUMP" allianceColor="BLUE" launcherState="STATE_IDLE" />
+    <zone x1_rect="5.21" y1_rect="3.391" x2_rect="8.295" y2_rect="4.631" pathUpdateOption="DRIVE_OVER_BUMP" allianceColor="BLUE" launcherState="STATE_IDLE" />
 </auton>
