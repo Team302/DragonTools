@@ -186,3 +186,6 @@ output_code/
 
 # Keep bundled field assets (field image metadata) despite the *.json rule above
 !assets/fields/*.json
+
+#choreo
+/Choreo-main/

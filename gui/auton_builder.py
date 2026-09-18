@@ -27,10 +27,20 @@ Layout (mirrors the Mechanism Generator style):
 import os
 import re
 import json
+import math
+import bisect
 import xml.etree.ElementTree as ET
 
-from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPixmap
+from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer
+from PyQt6.QtGui import (
+    QBrush,
+    QColor,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QPolygonF,
+)
 from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -40,6 +50,7 @@ from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsPathItem,
     QGraphicsPixmapItem,
+    QGraphicsPolygonItem,
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsTextItem,
@@ -53,6 +64,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSlider,
     QSplitter,
     QTreeWidget,
     QTreeWidgetItem,
@@ -91,6 +103,12 @@ CIRCLE_KEYS = ["circlex", "circley", "radius"]
 
 HANDLE_SIZE = 0.28  # metres
 ZONE_LABEL_SCALE = 0.02  # shrink pixel-sized text into field metres
+
+# Distinct colours cycled per trajectory path so an auton's order reads at a glance.
+PATH_PALETTE = [
+    (80, 190, 255), (120, 230, 120), (255, 180, 70), (240, 120, 200),
+    (255, 235, 90), (150, 150, 255), (90, 230, 220), (240, 130, 90),
+]
 
 
 def _make_zone_label(text, parent):
@@ -388,6 +406,16 @@ class AutonBuilderWidget(QWidget):
         self._field_asset = None   # cache: (QPixmap, meta) once loaded, or False
         self.field_window = None   # separate pop-out window, or None when docked
 
+        # Trajectory playback state.
+        self._timeline = None      # {"t","x","y","h","dur","bumper"} or None
+        self._robot_item = None
+        self._pb_time = 0.0
+        self._pb_playing = False
+        self._pb_scrubbing = False
+        self._pb_timer = QTimer(self)
+        self._pb_timer.setInterval(30)  # ~33 fps
+        self._pb_timer.timeout.connect(self._on_pb_tick)
+
         self.dtd_paths = {}
         self.schema_auton = {}
         self.schema_zone = {}
@@ -519,7 +547,15 @@ class AutonBuilderWidget(QWidget):
         self.field_area = QWidget()
         self.field_area_layout = QVBoxLayout(self.field_area)
         self.field_area_layout.setContentsMargins(0, 0, 0, 0)
-        self.field_area_layout.addWidget(self.field_view)
+
+        # field view + playback bar travel together (into the pop-out window too).
+        self.field_stack = QWidget()
+        stack_layout = QVBoxLayout(self.field_stack)
+        stack_layout.setContentsMargins(0, 0, 0, 0)
+        stack_layout.setSpacing(2)
+        stack_layout.addWidget(self.field_view, 1)
+        stack_layout.addWidget(self._build_playback_bar())
+        self.field_area_layout.addWidget(self.field_stack)
         field_layout.addWidget(self.field_area, 1)
 
         creator.addWidget(self.field_wrap)
@@ -563,9 +599,9 @@ class AutonBuilderWidget(QWidget):
         # Remember the current split so we can restore it when docking back.
         self._creator_sizes_docked = self.creator_splitter.sizes()
 
-        self.field_area_layout.removeWidget(self.field_view)
+        self.field_area_layout.removeWidget(self.field_stack)
         self.field_window = FieldWindow(self._on_field_window_closed, parent=self.window())
-        self.field_window.layout().addWidget(self.field_view)
+        self.field_window.layout().addWidget(self.field_stack)
 
         # Collapse the field area so the editor takes over the vertical space.
         self.field_area.hide()
@@ -578,7 +614,7 @@ class AutonBuilderWidget(QWidget):
         self.field_window.show()
         self.field_window.raise_()
         self.field_window.activateWindow()
-        self.field_view.show()
+        self.field_stack.show()
         self.refresh_field()
 
     def dock_field(self, _from_close=False):
@@ -588,10 +624,10 @@ class AutonBuilderWidget(QWidget):
         window = self.field_window
         self.field_window = None
 
-        window.layout().removeWidget(self.field_view)
-        self.field_area_layout.addWidget(self.field_view)
+        window.layout().removeWidget(self.field_stack)
+        self.field_area_layout.addWidget(self.field_stack)
         self.field_area.show()
-        self.field_view.show()
+        self.field_stack.show()
         self.field_title.setText("Field Visualization")
         self.creator_splitter.setSizes(
             getattr(self, "_creator_sizes_docked", None) or [420, 380]
@@ -607,6 +643,208 @@ class AutonBuilderWidget(QWidget):
         # The user closed the pop-out window directly: re-dock the field.
         if self.field_window is not None:
             self.dock_field(_from_close=True)
+
+    # ------------------------------------------------------------------ #
+    # Trajectory playback
+    # ------------------------------------------------------------------ #
+    def _build_playback_bar(self):
+        bar = QWidget()
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(4, 0, 4, 0)
+        self.btn_play = QPushButton("\u25B6 Play")
+        self.btn_play.setFixedWidth(80)
+        self.btn_play.clicked.connect(self._toggle_playback)
+        layout.addWidget(self.btn_play)
+
+        self.pb_slider = QSlider(Qt.Orientation.Horizontal)
+        self.pb_slider.setRange(0, 1000)
+        self.pb_slider.setValue(0)
+        self.pb_slider.sliderPressed.connect(self._on_scrub_start)
+        self.pb_slider.sliderReleased.connect(self._on_scrub_end)
+        self.pb_slider.valueChanged.connect(self._on_scrub)
+        layout.addWidget(self.pb_slider, 1)
+
+        self.pb_time_label = QLabel("0.00 / 0.00 s")
+        self.pb_time_label.setStyleSheet("color: #C0C0C0;")
+        self.pb_time_label.setFixedWidth(110)
+        layout.addWidget(self.pb_time_label)
+
+        self.playback_bar = bar
+        return bar
+
+    def _owner_primitives(self, owner):
+        """Ordered primitives of an auton/snippet body (or a single primitive)."""
+        entries = owner.get("sequence")
+        if entries is not None:
+            return [e["data"] for e in entries if e.get("kind") == "primitive"]
+        if owner.get("id"):
+            return [owner]
+        return []
+
+    def _rebuild_playback(self, owner):
+        """Build the pose timeline for the whole auton (chained primitives)."""
+        self._timeline = None
+        if owner is None:
+            self._update_playback_controls()
+            return
+        times, xs, ys, hs = [], [], [], []
+        bumper = None
+        cursor = 0.0
+        last = None
+        for primitive in self._owner_primitives(owner):
+            traj = None
+            choreoname = primitive.get("choreoname")
+            if choreoname:
+                traj = self._load_trajectory_full(choreoname)
+            if traj and len(traj["samples"]) >= 2:
+                if bumper is None:
+                    bumper = traj["bumper"]
+                base = traj["samples"][0][0]
+                for (t, x, y, h) in traj["samples"]:
+                    times.append(cursor + (t - base))
+                    xs.append(x); ys.append(y); hs.append(h)
+                    last = (x, y, h)
+                cursor = times[-1]
+            else:
+                # Non-drive (or unloadable) primitive: hold the last pose for `time`.
+                try:
+                    wait = float(primitive.get("time", 0) or 0)
+                except (TypeError, ValueError):
+                    wait = 0.0
+                if last is not None and wait > 0:
+                    times.append(cursor); xs.append(last[0]); ys.append(last[1]); hs.append(last[2])
+                    cursor += wait
+                    times.append(cursor); xs.append(last[0]); ys.append(last[1]); hs.append(last[2])
+
+        if len(times) >= 2 and cursor > 0:
+            self._timeline = {
+                "t": times, "x": xs, "y": ys, "h": hs,
+                "dur": cursor, "bumper": bumper or (0.4, 0.4, 0.4),
+            }
+            if self._pb_time > cursor:
+                self._pb_time = 0.0
+        else:
+            self._pb_time = 0.0
+            self._stop_playback()
+        self._update_playback_controls()
+
+    def _update_playback_controls(self):
+        enabled = self._timeline is not None
+        for w in (self.btn_play, self.pb_slider):
+            w.setEnabled(enabled)
+        if not enabled:
+            self.btn_play.setText("\u25B6 Play")
+            self.pb_slider.blockSignals(True)
+            self.pb_slider.setValue(0)
+            self.pb_slider.blockSignals(False)
+            self.pb_time_label.setText("0.00 / 0.00 s")
+        else:
+            self._sync_playback_ui()
+
+    def _playback_pose(self, t):
+        tl = self._timeline
+        times = tl["t"]
+        if t <= times[0]:
+            return tl["x"][0], tl["y"][0], tl["h"][0]
+        if t >= times[-1]:
+            return tl["x"][-1], tl["y"][-1], tl["h"][-1]
+        i = bisect.bisect_right(times, t)
+        i0, i1 = i - 1, i
+        t0, t1 = times[i0], times[i1]
+        frac = 0.0 if t1 == t0 else (t - t0) / (t1 - t0)
+        x = tl["x"][i0] + (tl["x"][i1] - tl["x"][i0]) * frac
+        y = tl["y"][i0] + (tl["y"][i1] - tl["y"][i0]) * frac
+        h = tl["h"][i0] + (tl["h"][i1] - tl["h"][i0]) * frac
+        return x, y, h
+
+    def _create_robot_item(self):
+        """Create the robot (bumper) marker for the current timeline."""
+        if self._timeline is None:
+            self._robot_item = None
+            return
+        front, side, back = self._timeline["bumper"]
+        body = QGraphicsRectItem(-back, -side, front + back, 2 * side)
+        body.setPen(QPen(QColor(255, 255, 255), 0.04))
+        body.setBrush(QBrush(QColor(90, 150, 240, 130)))
+        body.setZValue(8)
+        # Front-direction arrow so orientation is obvious.
+        nose = QGraphicsPolygonItem(
+            QPolygonF([
+                QPointF(front, 0.0),
+                QPointF(front - 0.22, -min(side, 0.22)),
+                QPointF(front - 0.22, min(side, 0.22)),
+            ]),
+            body,
+        )
+        nose.setPen(QPen(QColor(255, 255, 255), 0.0))
+        nose.setBrush(QBrush(QColor(255, 255, 255)))
+        self.field_scene.addItem(body)
+        self._robot_item = body
+        self._apply_robot_pose(self._pb_time)
+
+    def _apply_robot_pose(self, t):
+        if self._robot_item is None or self._timeline is None:
+            return
+        x, y, h = self._playback_pose(t)
+        sx, sy = world_to_scene(x, y)
+        self._robot_item.setPos(sx, sy)
+        # Scene Y is flipped, so a CCW world heading is a negative scene rotation.
+        self._robot_item.setRotation(-math.degrees(h))
+
+    def _toggle_playback(self):
+        if self._timeline is None:
+            return
+        if self._pb_playing:
+            self._stop_playback()
+        else:
+            if self._pb_time >= self._timeline["dur"]:
+                self._pb_time = 0.0  # restart from the beginning
+            self._pb_playing = True
+            self.btn_play.setText("\u275A\u275A Pause")
+            self._pb_timer.start()
+
+    def _stop_playback(self):
+        self._pb_playing = False
+        self._pb_timer.stop()
+        if hasattr(self, "btn_play"):
+            self.btn_play.setText("\u25B6 Play")
+
+    def _on_pb_tick(self):
+        if self._timeline is None:
+            self._stop_playback()
+            return
+        self._pb_time += self._pb_timer.interval() / 1000.0
+        if self._pb_time >= self._timeline["dur"]:
+            self._pb_time = self._timeline["dur"]
+            self._apply_robot_pose(self._pb_time)
+            self._sync_playback_ui()
+            self._stop_playback()
+            return
+        self._apply_robot_pose(self._pb_time)
+        self._sync_playback_ui()
+
+    def _sync_playback_ui(self):
+        if self._timeline is None:
+            return
+        dur = self._timeline["dur"]
+        self.pb_slider.blockSignals(True)
+        self.pb_slider.setValue(int(1000 * self._pb_time / dur) if dur else 0)
+        self.pb_slider.blockSignals(False)
+        self.pb_time_label.setText(f"{self._pb_time:.2f} / {dur:.2f} s")
+
+    def _on_scrub_start(self):
+        self._pb_scrubbing = True
+        self._stop_playback()
+
+    def _on_scrub_end(self):
+        self._pb_scrubbing = False
+
+    def _on_scrub(self, value):
+        if self._timeline is None:
+            return
+        self._pb_time = self._timeline["dur"] * value / 1000.0
+        self._apply_robot_pose(self._pb_time)
+        self.pb_time_label.setText(f"{self._pb_time:.2f} / {self._timeline['dur']:.2f} s")
 
     def _update_status_label(self):
         auton = self.auton_source_path or "(none - use Options -> Select Auton Files Folder)"
@@ -1674,6 +1912,7 @@ class AutonBuilderWidget(QWidget):
     # ------------------------------------------------------------------ #
     def refresh_field(self):
         self.field_scene.clear()
+        self._robot_item = None
         self._draw_field()
 
         owner = None
@@ -1693,6 +1932,10 @@ class AutonBuilderWidget(QWidget):
 
         if owner is not None:
             self._draw_paths(owner)
+
+        # Rebuild the playback timeline + robot marker for this selection.
+        self._rebuild_playback(owner)
+        self._create_robot_item()
 
         self.field_view._fit()
 
@@ -1877,20 +2120,15 @@ class AutonBuilderWidget(QWidget):
         text.setZValue(15)
 
     def _draw_paths(self, owner):
-        entries = owner.get("sequence")
-        primitives = []
-        if entries is not None:
-            primitives = [e["data"] for e in entries if e.get("kind") == "primitive"]
-        elif owner.get("id"):
-            primitives = [owner]
-
-        for primitive in primitives:
+        seg = 0
+        for primitive in self._owner_primitives(owner):
             choreoname = primitive.get("choreoname")
             if not choreoname:
                 continue
             points = self._load_trajectory_points(choreoname)
             if len(points) < 2:
                 continue
+            color = QColor(*PATH_PALETTE[seg % len(PATH_PALETTE)])
             path = QPainterPath()
             sx, sy = world_to_scene(*points[0])
             path.moveTo(sx, sy)
@@ -1898,12 +2136,30 @@ class AutonBuilderWidget(QWidget):
                 px, py = world_to_scene(x, y)
                 path.lineTo(px, py)
             path_item = QGraphicsPathItem(path)
-            path_item.setPen(QPen(QColor(80, 190, 255), 0.06))
+            path_item.setPen(QPen(color, 0.07))
             path_item.setZValue(5)
             self.field_scene.addItem(path_item)
 
-            self._draw_marker(points[0], QColor(80, 230, 120))
-            self._draw_marker(points[-1], QColor(240, 90, 90))
+            self._draw_marker(points[0], color.lighter(130))
+            self._draw_marker(points[-1], color.darker(130))
+            self._draw_path_number(points[0], seg + 1, color)
+            seg += 1
+
+    def _draw_path_number(self, point, number, color):
+        """A numbered badge at a path's start so the auton order is readable."""
+        sx, sy = world_to_scene(*point)
+        r = 0.26
+        badge = QGraphicsEllipseItem(sx - r, sy - r, 2 * r, 2 * r)
+        badge.setPen(QPen(QColor(20, 20, 20), 0.03))
+        badge.setBrush(QBrush(color))
+        badge.setZValue(14)
+        self.field_scene.addItem(badge)
+        text = self.field_scene.addText(str(number))
+        text.setDefaultTextColor(QColor(20, 20, 20))
+        text.setScale(0.02)
+        tr = text.boundingRect()
+        text.setPos(sx - tr.width() * 0.01, sy - tr.height() * 0.01)
+        text.setZValue(15)
 
     def _draw_marker(self, point, color):
         sx, sy = world_to_scene(*point)
@@ -1914,15 +2170,18 @@ class AutonBuilderWidget(QWidget):
         marker.setZValue(6)
         self.field_scene.addItem(marker)
 
-    def _load_trajectory_points(self, choreoname):
+    def _resolve_traj_path(self, choreoname):
         if not choreoname or not self.choreo_path or not os.path.isdir(self.choreo_path):
-            return []
+            return None
         candidates = [
             os.path.join(self.choreo_path, choreoname + ".traj"),
             os.path.join(self.choreo_path, choreoname + ".json"),
             os.path.join(self.choreo_path, choreoname),
         ]
-        path = next((p for p in candidates if os.path.isfile(p)), None)
+        return next((p for p in candidates if os.path.isfile(p)), None)
+
+    def _load_trajectory_points(self, choreoname):
+        path = self._resolve_traj_path(choreoname)
         if not path:
             return []
         try:
@@ -1936,3 +2195,31 @@ class AutonBuilderWidget(QWidget):
             waypoints = (data.get("snapshot") or {}).get("waypoints") or []
             points = [(w["x"], w["y"]) for w in waypoints if "x" in w and "y" in w]
         return points
+
+    def _load_trajectory_full(self, choreoname):
+        """Return ``{"samples": [(t,x,y,heading)...], "bumper": (f,s,b)}`` or None."""
+        path = self._resolve_traj_path(choreoname)
+        if not path:
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return None
+        traj = data.get("trajectory") or {}
+        raw = traj.get("samples") or []
+        samples = [
+            (float(s["t"]), float(s["x"]), float(s["y"]), float(s.get("heading", 0.0)))
+            for s in raw
+            if "t" in s and "x" in s and "y" in s
+        ]
+        if len(samples) < 2:
+            return None
+        bump = (traj.get("config") or {}).get("bumper") or {}
+        bumper = (
+            float(bump.get("front", 0.4)),
+            float(bump.get("side", 0.4)),
+            float(bump.get("back", 0.4)),
+        )
+        return {"samples": samples, "bumper": bumper}
+
