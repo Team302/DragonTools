@@ -1781,11 +1781,11 @@ class AutonBuilderWidget(QWidget):
         if self._field_asset is not None:
             return self._field_asset or None
         base = os.path.join(self._repo_root(), "assets", "fields")
-        json_path = os.path.join(base, "2026-field.json")
+        json_path = os.path.join(base, "field.json")
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 meta = json.load(f)
-            png_path = os.path.join(base, meta.get("field-image", "2026-field.png"))
+            png_path = os.path.join(base, meta.get("field-image", "field.png"))
             pixmap = QPixmap(png_path)
             if pixmap.isNull():
                 raise ValueError("field image failed to load")
