@@ -1,6 +1,6 @@
 {
   "game": "Rebuilt",
-  "field-image": "2026-field.png",
+  "field-image": "field.png",
   "field-corners": {
     "top-left": [256, 113],
     "bottom-right": [3939, 1914]
