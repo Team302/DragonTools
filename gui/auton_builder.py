@@ -1398,12 +1398,9 @@ class AutonBuilderWidget(QWidget):
             self._editor_title("Snippet")
         group = QGroupBox("Snippet")
         form = QFormLayout(group)
-        combo = NoScrollComboBox()
-        combo.setEditable(True)  # keep refs to snippets not present in this folder
-        combo.addItem("")
-        # Options are the snippets' filenames, derived from their names.
-        combo.addItems([self._snippet_filename(s) for s in self.snippets])
-        combo.setCurrentText(str(sref.get("file", "")))
+        combo = self._make_choice_combo(
+            [self._snippet_filename(s) for s in self.snippets], sref.get("file", "")
+        )
         combo.currentTextChanged.connect(
             lambda text: self._apply_snippet_ref_file(desc, sref, text)
         )
@@ -1419,16 +1416,32 @@ class AutonBuilderWidget(QWidget):
         spin.setValue(value)
         return spin
 
+    def _make_choice_combo(self, options, current, include_blank=True):
+        """A select-only (non-editable) combo box.
+
+        The current stored value is always shown, even if it isn't one of the
+        standard options (e.g. a reference to an item outside the loaded folder),
+        so switching to a non-editable box never silently drops a value.
+        """
+        combo = NoScrollComboBox()
+        items = [""] if include_blank else []
+        for opt in options:
+            opt = str(opt)
+            if opt not in items:
+                items.append(opt)
+        current = str(current)
+        if current and current not in items:
+            items.append(current)
+        combo.addItems(items)
+        combo.setCurrentText(current)
+        return combo
+
     def _add_schema_field(self, form, data, attr, on_change):
         name = attr["name"]
         current = data.get(name, attr.get("default", ""))
 
         if name == "choreoname":
-            combo = NoScrollComboBox()
-            combo.setEditable(True)
-            combo.addItem("")
-            combo.addItems(self._choreo_path_names())
-            combo.setCurrentText(str(current))
+            combo = self._make_choice_combo(self._choreo_path_names(), current)
             combo.currentTextChanged.connect(lambda text, k=name: on_change(k, text))
             form.addRow(name, combo)
             return
@@ -1629,18 +1642,11 @@ class AutonBuilderWidget(QWidget):
         box = QGroupBox("Mechanism Data")
         form = QFormLayout(box)
         for attr, options in fields.items():
-            combo = NoScrollComboBox()
-            combo.setEditable(True)
-            combo.addItem("")
-            combo.addItems(options)
-            combo.setCurrentText(str(data.get(attr, "")))
+            combo = self._make_choice_combo(options, data.get(attr, ""))
             combo.currentTextChanged.connect(lambda text, d=data, k=attr: self._on_mech_field(d, k, text))
             form.addRow(attr, combo)
         for attr, value in extra.items():
-            combo = NoScrollComboBox()
-            combo.setEditable(True)
-            combo.addItem("")
-            combo.setCurrentText(str(value))
+            combo = self._make_choice_combo([], value)
             combo.currentTextChanged.connect(lambda text, d=data, k=attr: self._on_mech_field(d, k, text))
             form.addRow(attr, combo)
         return box
