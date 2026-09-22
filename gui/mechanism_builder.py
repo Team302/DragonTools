@@ -544,6 +544,31 @@ class MechanismEditorWindow(QMainWindow):
                 self.editor_layout.addWidget(txt)
 
     # --- STATE EDITOR ---
+    @staticmethod
+    def _make_readable_combo(items, current=""):
+        """A combo box that auto-sizes to its contents and shows full-width popups.
+
+        Prevents long control-data / enum names from being truncated (e.g.
+        "Pos...inch") both in the collapsed box and in the dropdown list.
+        """
+        combo = QComboBox()
+        combo.addItems(items)
+        if current:
+            combo.setCurrentText(current)
+        combo.setStyleSheet(
+            "QComboBox { background-color: #1E1E1E; border: 1px solid #555; "
+            "color: white; padding: 3px; border-radius: 2px; }"
+        )
+        # Grow the collapsed box to fit the selected item (with a sensible floor).
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        combo.setMinimumContentsLength(12)
+        combo.setMinimumWidth(150)
+        # Widen the popup list so every option is fully readable.
+        fm = combo.fontMetrics()
+        widest = max((fm.horizontalAdvance(t) for t in items), default=0)
+        combo.view().setMinimumWidth(widest + 40)
+        return combo
+
     def _on_motor_control_data_changed(self, motor_target, cd_name, mech_data):
         """Store the chosen control data on the motor target and copy its unit."""
         motor_target["ControlData"] = cd_name
@@ -620,11 +645,8 @@ class MechanismEditorWindow(QMainWindow):
                     )
                 )
 
-                cd_combo = QComboBox()
-                cd_combo.addItems([""] + cd_names)
-                cd_combo.setCurrentText(mt.get("ControlData", ""))
-                cd_combo.setStyleSheet(
-                    "QComboBox { background-color: #1E1E1E; border: 1px solid #555; color: white; padding: 3px; border-radius: 2px; }"
+                cd_combo = self._make_readable_combo(
+                    [""] + cd_names, mt.get("ControlData", "")
                 )
                 cd_combo.currentTextChanged.connect(
                     lambda text, it=mt, md=mech_data: self._on_motor_control_data_changed(it, text, md)
