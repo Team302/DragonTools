@@ -324,10 +324,13 @@ class DragonCodeGenerator():
                 attr = f"{nm.camel_case(mech_name)}State"
                 options = fields.setdefault(attr, [])
                 for state in mech.get("states", []):
-                    if isinstance(state, dict) and state.get("name"):
-                        enum = nm.state_enum(state["name"])
-                        if enum not in options:
-                            options.append(enum)
+                    if not isinstance(state, dict) or not state.get("name"):
+                        continue
+                    if not state.get("auton_state", True):
+                        continue  # excluded from the auton DTD by the user
+                    enum = nm.state_enum(state["name"])
+                    if enum not in options:
+                        options.append(enum)
         return {attr: opts for attr, opts in fields.items() if opts}
 
     def _copy_dtd_with_states(self, src_path, dest_path, element_fields):

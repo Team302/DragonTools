@@ -186,13 +186,20 @@ class MechanismEditorWindow(QMainWindow):
             self, "Open Project", "", "JSON Files (*.json)"
         )
         if fname:
-            self.model.load_project(fname)
-            self.model.update_app_settings(fname)
-            self.setWindowTitle(f"Team 302 Mechanism Builder - {os.path.basename(fname)}")
+            self.load_project_from_path(fname)
 
-            self.populate_tree()
-            self.clear_editor()
-            self.lbl_editor_title.setText(f"Loaded: {os.path.basename(fname)}")
+    def load_project_from_path(self, path):
+        """Load a project JSON from ``path`` and refresh the tree/editor.
+
+        Shared by this window's File > Load and the suite shell's Load action so
+        the Mechanism Generator view always refreshes after a load.
+        """
+        self.model.load_project(path)
+        self.model.update_app_settings(path)
+        self.setWindowTitle(f"Team 302 Mechanism Builder - {os.path.basename(path)}")
+        self.populate_tree()
+        self.clear_editor()
+        self.lbl_editor_title.setText(f"Loaded: {os.path.basename(path)}")
 
     def save_project(self):
         if self.current_project_path and os.path.exists(self.current_project_path):
@@ -560,6 +567,16 @@ class MechanismEditorWindow(QMainWindow):
             lambda text, d=state_data: self.update_dict_and_tree(d, "name", text)
         )
         name_form.addRow("Name:", name_edit)
+
+        # Whether this state is exposed to the Auton Builder (DTD + primitive /
+        # zone / snippet dropdowns). Defaults to checked; unchecking excludes it.
+        auton_cb = QCheckBox("Auton State (available in Auton Builder)")
+        auton_cb.setStyleSheet("color: #E0E0E0;")
+        auton_cb.setChecked(state_data.get("auton_state", True))
+        auton_cb.toggled.connect(
+            lambda checked, d=state_data: d.__setitem__("auton_state", checked)
+        )
+        name_form.addRow("", auton_cb)
         self.editor_layout.addWidget(name_frame)
 
         # --- Motor targets (fixed, one per motor) ---

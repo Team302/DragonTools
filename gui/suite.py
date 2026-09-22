@@ -101,8 +101,9 @@ class DragonSuiteWindow(QMainWindow):
         )
         if not path:
             return
-        self.mechanism_generator.model.load_project(path)
-        self.mechanism_generator.model.update_app_settings(path)
+        # Load into the Mechanism Generator and refresh its tree/editor.
+        self.mechanism_generator.load_project_from_path(path)
+        # Auton builder reflects any new mechanism states from the loaded project.
         self.auton_builder._load_saved_data()
         self.auton_builder.refresh_tree()
         self.auton_builder.refresh_field()

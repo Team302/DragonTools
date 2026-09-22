@@ -1416,15 +1416,20 @@ class AutonBuilderWidget(QWidget):
             self._to_select = node
         return node
 
+    def _primitive_step_label(self, index, primitive):
+        """Label for a primitive step in the tree / sequence list."""
+        label = f"{index + 1}. {primitive.get('id', 'DO_NOTHING')}"
+        if primitive.get("choreoname"):
+            label += f"  [{primitive['choreoname']}]"
+        label += self._primitive_warning_suffix(primitive)
+        return label
+
     def _add_steps(self, parent, coll, owner_index, container, select_data):
         for j, entry in enumerate(container.get("sequence", [])):
             data = entry.get("data", {})
             zero_time = False
             if entry.get("kind") == "primitive":
-                label = f"{j + 1}. {data.get('id', 'DO_NOTHING')}"
-                if data.get("choreoname"):
-                    label += f"  [{data['choreoname']}]"
-                label += self._primitive_warning_suffix(data)
+                label = self._primitive_step_label(j, data)
                 zero_time = self._primitive_time(data) <= 0
             else:
                 label = f"{j + 1}. snippet: {data.get('file', '')}"
@@ -1439,6 +1444,33 @@ class AutonBuilderWidget(QWidget):
                         "step": j, "index": k,
                     }
                     self._mk_node(step_node, f"zone: {zref.get('filename', '')}", zref_desc, select_data)
+
+    def _find_tree_item(self, desc):
+        """Locate the tree item whose descriptor equals ``desc`` (or None)."""
+        stack = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
+        while stack:
+            item = stack.pop()
+            if item is None:
+                continue
+            if item.data(0, Qt.ItemDataRole.UserRole) == desc:
+                return item
+            stack.extend(item.child(c) for c in range(item.childCount()))
+        return None
+
+    def _refresh_step_node(self, desc, primitive):
+        """Update one primitive step's tree label + colour without a full rebuild.
+
+        Used for live edits (e.g. the time field) so the tree reflects warnings
+        immediately without tearing down the editor the user is typing in.
+        """
+        item = self._find_tree_item(desc)
+        if item is None:
+            return
+        item.setText(0, self._primitive_step_label(desc.get("index", 0), primitive))
+        if self._primitive_time(primitive) <= 0:
+            item.setForeground(0, QBrush(QColor(240, 90, 90)))
+        else:
+            item.setData(0, Qt.ItemDataRole.ForegroundRole, None)
 
     def on_tree_click(self, item, column=0):
         desc = item.data(0, Qt.ItemDataRole.UserRole)
@@ -1891,6 +1923,9 @@ class AutonBuilderWidget(QWidget):
             primitive["time"] = str(value)
             self._save_data()
             refresh_style()
+            # Update this step's tree label/colour in place (keeps editor focus).
+            if desc.get("type") == "step":
+                self._refresh_step_node(desc, primitive)
             self.refresh_field()  # updates timeline/robot; does not rebuild editor
 
         spin.valueChanged.connect(on_change)
@@ -1984,8 +2019,9 @@ class AutonBuilderWidget(QWidget):
             # Label depends on id: rebuild the tree, keeping this step selected.
             self.populate_tree(select_data=desc)
         elif key == "choreoname":
-            # Redraw the path but keep focus (choreoname edits fire per keystroke).
-            self.refresh_field()
+            # choreoname is a dropdown (discrete pick): rebuild so the tree label
+            # and the time short-drive warning both reflect the new trajectory.
+            self.populate_tree(select_data=desc)
 
     def _update_zone_field(self, zone, key, value):
         zone[key] = round(float(value), 3)
@@ -2100,10 +2136,13 @@ class AutonBuilderWidget(QWidget):
                 attr = f"{camel_case(mech_name)}State"
                 options = fields.setdefault(attr, [])
                 for state in mech.get("states", []):
-                    if isinstance(state, dict) and state.get("name"):
-                        enum_name = state_enum(state["name"])
-                        if enum_name not in options:
-                            options.append(enum_name)
+                    if not isinstance(state, dict) or not state.get("name"):
+                        continue
+                    if not state.get("auton_state", True):
+                        continue  # excluded from the Auton Builder by the user
+                    enum_name = state_enum(state["name"])
+                    if enum_name not in options:
+                        options.append(enum_name)
         return fields
 
     def _render_mechanism_data(self, data):
