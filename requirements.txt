@@ -1,0 +1,11 @@
+# Dragon Tool Suite - Python dependencies
+#
+# Install with:  pip install -r requirements.txt
+# (Everything needed to run the app AND build the standalone .exe.)
+
+# --- Runtime dependencies ---
+PyQt6>=6.6,<7          # GUI framework (suite shell, editors, field view)
+Jinja2>=3.1,<4         # code-generation templates (generation/)
+
+# --- Build dependency (used by build_exe.bat) ---
+pyinstaller>=6.0       # bundles main.py + data into a single Windows .exe

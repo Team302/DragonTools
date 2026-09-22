@@ -1035,8 +1035,8 @@ class MechanismEditorWindow(QMainWindow):
                 message = "Code generated successfully!"
                 if dtds:
                     message += (
-                        f"\n\nAlso wrote {len(dtds)} auton DTD(s) with mechanism "
-                        "states into deploy/auton/."
+                        f"\n\nGenerated {len(dtds)} auton DTD(s) with mechanism "
+                        "states into deploy/auton/.\n DON'T FORGET TO UPDATE CyclePrimitives"
                     )
                 QMessageBox.information(self, "Success", message)
             except Exception as e:

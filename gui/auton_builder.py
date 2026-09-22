@@ -3,8 +3,8 @@
 The Auton Builder lets a user assemble FRC autonomous routines from the objects
 defined by the project's DTD schemas:
 
-* ``AutonExample/auton.dtd``      - autons, primitives and snippet/zone references
-* ``AutonExample/Zone/zone.dtd``  - zone geometry (rectangle / circle) + metadata
+* ``<auton_folder>/auton.dtd``      - autons, primitives and snippet/zone references
+* ``<auton_folder>/Zone/zone.dtd``  - zone geometry (rectangle / circle) + metadata
 
 The editor is **DTD driven**: the allowed attributes and their enumerated values
 are parsed from the DTDs at startup, so the UI only ever offers values the schema
@@ -457,7 +457,7 @@ class AutonBuilderWidget(QWidget):
         self.dtd_paths = {}
         self.schema_auton = {}
         self.schema_zone = {}
-        self._load_dtd_schema()
+        self._folder_prompt_shown = False
 
         self.field_scene = QGraphicsScene(-0.5, -0.5, FIELD_WIDTH + 1.0, FIELD_HEIGHT + 1.0)
         self.field_view = FieldView(self.field_scene)
@@ -477,6 +477,7 @@ class AutonBuilderWidget(QWidget):
 
         self._build_layout()
         self._restore_settings()
+        self._load_dtd_schema()          # DTDs come from the selected auton folder
         self._load_from_source_folder()
         self._update_status_label()
         self.populate_tree()
@@ -489,20 +490,24 @@ class AutonBuilderWidget(QWidget):
         return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
     def _load_dtd_schema(self):
-        """Parse each DTD separately.
+        """Parse the DTDs from the selected auton folder.
 
-        ``auton.dtd`` and ``zone.dtd`` both declare an element named ``zone`` but
-        with different meaning: in ``auton.dtd`` it is a *reference* (``filename``)
-        used inside a primitive, while in ``zone.dtd`` it is the zone *definition*
-        (geometry + metadata). Keeping the schemas apart avoids collisions.
+        ``auton.dtd`` and ``zone.dtd`` are pulled from the user-selected season
+        auton folder (``<auton_folder>/auton.dtd`` and
+        ``<auton_folder>/Zone/zone.dtd``) - there is no bundled copy. Both DTDs
+        declare an element named ``zone`` with different meaning, so they are
+        parsed into separate schemas to avoid collisions.
         """
-        example_dir = os.path.join(self._repo_root(), "AutonExample")
-        self.dtd_paths = {
-            "auton": os.path.join(example_dir, "auton.dtd"),
-            "zone": os.path.join(example_dir, "Zone", "zone.dtd"),
-        }
+        folder = self.auton_source_path
+        self.dtd_paths = {}
         self.schema_auton = {}
         self.schema_zone = {}
+        if not folder or not os.path.isdir(folder):
+            return
+        self.dtd_paths = {
+            "auton": os.path.join(folder, "auton.dtd"),
+            "zone": os.path.join(folder, "Zone", "zone.dtd"),
+        }
         for key, path in self.dtd_paths.items():
             if not os.path.isfile(path):
                 continue
@@ -1017,23 +1022,60 @@ class AutonBuilderWidget(QWidget):
         self.refresh_field()
 
     def select_auton_folder(self):
-        """Choose the folder to load auton / zone / snippet XMLs from."""
-        folder = QFileDialog.getExistingDirectory(self, "Select Auton Files Folder")
+        """Choose the season auton folder (holds the DTDs + auton/zone/snippet XMLs)."""
+        folder = QFileDialog.getExistingDirectory(self, "Select Auton Folder")
         if not folder:
             return
         self.auton_source_path = folder
+        self._folder_prompt_shown = True
         if self.mechanism_model is not None:
             self.mechanism_model.set_app_setting("auton_source_path", folder)
+        self._load_dtd_schema()          # pull auton.dtd / zone.dtd from this folder
         self.load_autons_from_folder(folder)
         self._update_status_label()
         self.populate_tree()
+        if self.current_selection:
+            self.render_editor()
         self.refresh_field()
 
+    def showEvent(self, event):
+        """First time this tab is shown without a folder, prompt the user."""
+        super().showEvent(event)
+        if self._folder_prompt_shown:
+            return
+        if self.auton_source_path and os.path.isdir(self.auton_source_path):
+            self._folder_prompt_shown = True
+            return
+        self._folder_prompt_shown = True
+        # Defer until the event loop is running so the dialog is modal-safe.
+        QTimer.singleShot(0, self._prompt_for_auton_folder)
+
+    def _prompt_for_auton_folder(self):
+        reply = QMessageBox.question(
+            self,
+            "Select Auton Folder",
+            "The Auton Builder reads its schema (auton.dtd / zone.dtd) and auton "
+            "files from your season robot project's auton folder.\n\n"
+            "Would you like to select that folder now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.select_auton_folder()
+
     def _load_from_source_folder(self):
-        """Load autons/zones/snippets from the selected folder (source of truth)."""
-        folder = self.auton_source_path or self._default_auton_dir()
-        self.auton_source_path = folder
-        self.load_autons_from_folder(folder)
+        """Load autons/zones/snippets from the selected folder (source of truth).
+
+        With no folder selected there is simply nothing to show until the user
+        picks one (there is no bundled example folder).
+        """
+        self.autons = []
+        self.zones = []
+        self.snippets = []
+        self.current_selection = None
+        folder = self.auton_source_path
+        if folder and os.path.isdir(folder):
+            self.load_autons_from_folder(folder)
 
     # Kept for the suite shell; auton data is folder-based, so a project
     # load/new simply re-reads the current auton files folder.
@@ -1111,9 +1153,6 @@ class AutonBuilderWidget(QWidget):
     # ------------------------------------------------------------------ #
     # XML loading (the folder is the source of truth)
     # ------------------------------------------------------------------ #
-    def _default_auton_dir(self):
-        return os.path.join(self._repo_root(), "AutonExample")
-
     def load_autons_from_folder(self, folder):
         """Load autons, zones and snippets from ``folder``.
 
