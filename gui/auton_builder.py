@@ -197,7 +197,11 @@ class NoScrollDoubleSpinBox(QDoubleSpinBox):
 
 
 class FieldView(QGraphicsView):
-    """A graphics view that always fits the whole field into the widget."""
+    """A graphics view that always fits the whole field into the widget.
+
+    Hosts a floating bottom-right overlay label used to show live mechanism
+    state during trajectory playback.
+    """
 
     def __init__(self, scene):
         super().__init__(scene)
@@ -207,16 +211,48 @@ class FieldView(QGraphicsView):
         self.setMinimumHeight(220)
         self.setBackgroundBrush(QColor(18, 26, 20))
 
+        self.state_overlay = QLabel(self.viewport())
+        self.state_overlay.setTextFormat(Qt.TextFormat.RichText)
+        self.state_overlay.setStyleSheet(
+            "QLabel { background-color: rgba(20, 24, 32, 210); color: #E0E0E0; "
+            "border: 1px solid #4FC3F7; border-radius: 6px; padding: 6px 8px; }"
+        )
+        self.state_overlay.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
+        self.state_overlay.hide()
+
     def _fit(self):
         self.fitInView(self.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def _position_overlay(self):
+        if not self.state_overlay.isVisible():
+            return
+        self.state_overlay.adjustSize()
+        margin = 8
+        x = self.viewport().width() - self.state_overlay.width() - margin
+        y = self.viewport().height() - self.state_overlay.height() - margin
+        self.state_overlay.move(max(margin, x), max(margin, y))
+
+    def set_overlay_html(self, html):
+        if not html:
+            self.state_overlay.hide()
+            return
+        self.state_overlay.setText(html)
+        self.state_overlay.show()
+        self.state_overlay.adjustSize()
+        self._position_overlay()
+        self.state_overlay.raise_()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._fit()
+        self._position_overlay()
 
     def showEvent(self, event):
         super().showEvent(event)
         self._fit()
+        self._position_overlay()
 
 
 class FieldWindow(QWidget):
@@ -408,6 +444,8 @@ class AutonBuilderWidget(QWidget):
 
         # Trajectory playback state.
         self._timeline = None      # {"t","x","y","h","dur","bumper"} or None
+        self._segments = []        # per-primitive [{start,end,label,states,changed}]
+        self._traj_cache = {}      # choreoname -> full traj dict or None
         self._robot_item = None
         self._pb_time = 0.0
         self._pb_playing = False
@@ -681,17 +719,56 @@ class AutonBuilderWidget(QWidget):
             return [owner]
         return []
 
+    # ------------------------------------------------------------------ #
+    # Primitive validation (time == 0 blocks; time < drive time warns)
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _primitive_time(primitive):
+        try:
+            return float(primitive.get("time", 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _primitive_time_status(self, primitive):
+        """Return ``(is_zero, is_short, drive_time)`` for a primitive.
+
+        ``is_zero``  - time is 0/unset (blocks XML generation).
+        ``is_short`` - a choreo path is set and its drive time exceeds ``time``
+                       (allowed, but flagged with a warning triangle).
+        """
+        t = self._primitive_time(primitive)
+        is_zero = t <= 0
+        drive = None
+        choreoname = primitive.get("choreoname")
+        if choreoname:
+            drive = self._trajectory_duration(choreoname)
+        is_short = bool(drive is not None and not is_zero and t < drive - 1e-6)
+        return is_zero, is_short, drive
+
+    def _primitive_warning_suffix(self, primitive):
+        """A short label suffix marking time problems (zero blocks, short warns)."""
+        is_zero, is_short, _ = self._primitive_time_status(primitive)
+        if is_zero:
+            return "  \u26d4 time 0"
+        if is_short:
+            return "  \u26a0"
+        return ""
+
     def _rebuild_playback(self, owner):
         """Build the pose timeline for the whole auton (chained primitives)."""
         self._timeline = None
+        self._segments = []
         if owner is None:
             self._update_playback_controls()
             return
         times, xs, ys, hs = [], [], [], []
+        segments = []
         bumper = None
         cursor = 0.0
         last = None
-        for primitive in self._owner_primitives(owner):
+        running_states = {}  # carry-forward: last commanded value per mechanism
+        for number, primitive in enumerate(self._owner_primitives(owner), start=1):
+            seg_start = cursor
             traj = None
             choreoname = primitive.get("choreoname")
             if choreoname:
@@ -707,20 +784,34 @@ class AutonBuilderWidget(QWidget):
                 cursor = times[-1]
             else:
                 # Non-drive (or unloadable) primitive: hold the last pose for `time`.
-                try:
-                    wait = float(primitive.get("time", 0) or 0)
-                except (TypeError, ValueError):
-                    wait = 0.0
+                wait = self._primitive_time(primitive)
                 if last is not None and wait > 0:
                     times.append(cursor); xs.append(last[0]); ys.append(last[1]); hs.append(last[2])
                     cursor += wait
                     times.append(cursor); xs.append(last[0]); ys.append(last[1]); hs.append(last[2])
+
+            if cursor > seg_start:
+                # Merge this primitive's mechanism states, tracking what changed.
+                own = {
+                    k: v for k, v in primitive.items()
+                    if k.endswith("State") and str(v).strip()
+                }
+                changed = {k for k, v in own.items() if running_states.get(k) != v}
+                running_states.update(own)
+                label = f"Primitive {number}: {primitive.get('id', 'DO_NOTHING')}"
+                if choreoname:
+                    label += f" [{choreoname}]"
+                segments.append({
+                    "start": seg_start, "end": cursor, "label": label,
+                    "states": dict(running_states), "changed": changed,
+                })
 
         if len(times) >= 2 and cursor > 0:
             self._timeline = {
                 "t": times, "x": xs, "y": ys, "h": hs,
                 "dur": cursor, "bumper": bumper or (0.4, 0.4, 0.4),
             }
+            self._segments = segments
             if self._pb_time > cursor:
                 self._pb_time = 0.0
         else:
@@ -761,6 +852,7 @@ class AutonBuilderWidget(QWidget):
         """Create the robot (bumper) marker for the current timeline."""
         if self._timeline is None:
             self._robot_item = None
+            self._update_state_overlay(0.0)  # hides the overlay
             return
         front, side, back = self._timeline["bumper"]
         body = QGraphicsRectItem(-back, -side, front + back, 2 * side)
@@ -790,6 +882,42 @@ class AutonBuilderWidget(QWidget):
         self._robot_item.setPos(sx, sy)
         # Scene Y is flipped, so a CCW world heading is a negative scene rotation.
         self._robot_item.setRotation(-math.degrees(h))
+        self._update_state_overlay(t)
+
+    def _active_segment(self, t):
+        for seg in self._segments:
+            if seg["start"] <= t < seg["end"]:
+                return seg
+        return self._segments[-1] if self._segments else None
+
+    def _update_state_overlay(self, t):
+        """Refresh the bottom-right live mechanism-state panel for time ``t``."""
+        if not hasattr(self, "field_view"):
+            return
+        if self._timeline is None or not self._segments:
+            self.field_view.set_overlay_html("")
+            return
+        seg = self._active_segment(t)
+        if seg is None:
+            self.field_view.set_overlay_html("")
+            return
+        rows = [
+            f"<div style='color:#8Fcaff; font-weight:bold; margin-bottom:3px'>"
+            f"{seg['label']}</div>"
+        ]
+        states = seg["states"]
+        if states:
+            for key in sorted(states):
+                changed = key in seg["changed"]
+                color = "#7CFC7C" if changed else "#D0D0D0"
+                mark = " &#9664;" if changed else ""
+                rows.append(
+                    f"<div style='color:{color}'>{key}: "
+                    f"<b>{states[key]}</b>{mark}</div>"
+                )
+        else:
+            rows.append("<div style='color:#888'>(no mechanism states)</div>")
+        self.field_view.set_overlay_html("".join(rows))
 
     def _toggle_playback(self):
         if self._timeline is None:
@@ -882,6 +1010,7 @@ class AutonBuilderWidget(QWidget):
         self.choreo_path = folder
         if self.mechanism_model is not None:
             self.mechanism_model.set_app_setting("auton_choreo_path", folder)
+        self._traj_cache = {}  # new folder: drop cached trajectories/durations
         self._update_status_label()
         if self.current_selection:
             self.render_editor()
@@ -943,6 +1072,17 @@ class AutonBuilderWidget(QWidget):
         return True
 
     def generate_auton(self):
+        offenders = self._zero_time_primitives()
+        if offenders:
+            listing = "\n".join(f"  \u2022 {c}: {label}" for c, label in offenders[:12])
+            more = "" if len(offenders) <= 12 else f"\n  ...and {len(offenders) - 12} more"
+            QMessageBox.warning(
+                self,
+                "Cannot Generate - Primitive time is 0",
+                "These primitives have a time of 0 and must be fixed before "
+                "generating:\n\n" + listing + more,
+            )
+            return
         ok, info = self.save_autons_to_folder()
         if ok:
             QMessageBox.information(
@@ -952,6 +1092,21 @@ class AutonBuilderWidget(QWidget):
             )
         else:
             QMessageBox.warning(self, "Generate Auton XML", info)
+
+    def _zero_time_primitives(self):
+        """List ``(container_name, primitive_label)`` for every time-0 primitive."""
+        offenders = []
+        for coll, items in (("Auton", self.autons), ("Snippet", self.snippets)):
+            for owner in items:
+                name = owner.get("name", "")
+                for number, entry in enumerate(owner.get("sequence", []), start=1):
+                    if entry.get("kind") != "primitive":
+                        continue
+                    primitive = entry.get("data", {})
+                    if self._primitive_time(primitive) <= 0:
+                        pid = primitive.get("id", "DO_NOTHING")
+                        offenders.append((f"{coll} '{name}'", f"#{number} {pid}"))
+        return offenders
 
     # ------------------------------------------------------------------ #
     # XML loading (the folder is the source of truth)
@@ -1225,14 +1380,19 @@ class AutonBuilderWidget(QWidget):
     def _add_steps(self, parent, coll, owner_index, container, select_data):
         for j, entry in enumerate(container.get("sequence", [])):
             data = entry.get("data", {})
+            zero_time = False
             if entry.get("kind") == "primitive":
                 label = f"{j + 1}. {data.get('id', 'DO_NOTHING')}"
                 if data.get("choreoname"):
                     label += f"  [{data['choreoname']}]"
+                label += self._primitive_warning_suffix(data)
+                zero_time = self._primitive_time(data) <= 0
             else:
                 label = f"{j + 1}. snippet: {data.get('file', '')}"
             step_desc = {"type": "step", "coll": coll, "owner": owner_index, "index": j}
             step_node = self._mk_node(parent, label, step_desc, select_data)
+            if zero_time:
+                step_node.setForeground(0, QBrush(QColor(240, 90, 90)))
             if entry.get("kind") == "primitive":
                 for k, zref in enumerate(data.get("zones", [])):
                     zref_desc = {
@@ -1499,6 +1659,7 @@ class AutonBuilderWidget(QWidget):
             data = entry.get("data", {})
             if entry.get("kind") == "primitive":
                 label = f"{j + 1}. {data.get('id', 'DO_NOTHING')}"
+                label += self._primitive_warning_suffix(data)
             else:
                 label = f"{j + 1}. snippet: {data.get('file', '')}"
             step_desc = {"type": "step", "coll": coll, "owner": desc["index"], "index": j}
@@ -1540,6 +1701,9 @@ class AutonBuilderWidget(QWidget):
         group = QGroupBox("Primitive")
         form = QFormLayout(group)
         for attr in self._primitive_attrs():
+            if attr["name"] == "time":
+                self._add_primitive_time_field(form, desc, primitive)
+                continue
             self._add_schema_field(
                 form, primitive, attr,
                 on_change=lambda k, v, d=desc, p=primitive: self._apply_primitive_field(d, p, k, v),
@@ -1653,6 +1817,47 @@ class AutonBuilderWidget(QWidget):
         spin.setSingleStep(0.1)
         spin.setValue(value)
         return spin
+
+    def _add_primitive_time_field(self, form, desc, primitive):
+        """Render the primitive ``time`` field with live zero/short warnings."""
+        spin = self._make_numeric_spin(self._primitive_time(primitive))
+        warn = QLabel()
+        warn.setWordWrap(True)
+
+        def refresh_style():
+            is_zero, is_short, drive = self._primitive_time_status(primitive)
+            if is_zero:
+                spin.setStyleSheet(
+                    "QDoubleSpinBox { background-color: #5A1A1A; color: #FFFFFF; "
+                    "border: 1px solid #FF5A5A; }"
+                )
+                warn.setText(
+                    "\u26d4 Time is 0 - XML generation is blocked until this is set."
+                )
+                warn.setStyleSheet("color: #FF8080; font-weight: bold;")
+                warn.show()
+            elif is_short:
+                spin.setStyleSheet("")
+                warn.setText(
+                    f"\u26a0 Time ({self._primitive_time(primitive):.2f}s) is less than "
+                    f"the trajectory drive time ({drive:.2f}s)."
+                )
+                warn.setStyleSheet("color: #FFCC66;")
+                warn.show()
+            else:
+                spin.setStyleSheet("")
+                warn.hide()
+
+        def on_change(value):
+            primitive["time"] = str(value)
+            self._save_data()
+            refresh_style()
+            self.refresh_field()  # updates timeline/robot; does not rebuild editor
+
+        spin.valueChanged.connect(on_change)
+        form.addRow("time", spin)
+        form.addRow("", warn)
+        refresh_style()
 
     def _make_choice_combo(self, options, current, include_blank=True):
         """A select-only (non-editable) combo box.
@@ -2198,6 +2403,16 @@ class AutonBuilderWidget(QWidget):
 
     def _load_trajectory_full(self, choreoname):
         """Return ``{"samples": [(t,x,y,heading)...], "bumper": (f,s,b)}`` or None."""
+        if choreoname in self._traj_cache:
+            return self._traj_cache[choreoname]
+        result = self._read_trajectory_full(choreoname)
+        # Only cache successful reads; a miss may just mean the choreo folder
+        # isn't set yet, and we want a later valid path to re-read.
+        if result is not None:
+            self._traj_cache[choreoname] = result
+        return result
+
+    def _read_trajectory_full(self, choreoname):
         path = self._resolve_traj_path(choreoname)
         if not path:
             return None
@@ -2222,4 +2437,13 @@ class AutonBuilderWidget(QWidget):
             float(bump.get("back", 0.4)),
         )
         return {"samples": samples, "bumper": bumper}
+
+    def _trajectory_duration(self, choreoname):
+        """Drive time (seconds) of a trajectory, or None if unavailable."""
+        traj = self._load_trajectory_full(choreoname)
+        if not traj:
+            return None
+        samples = traj["samples"]
+        return samples[-1][0] - samples[0][0]
+
 
