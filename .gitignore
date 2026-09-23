@@ -183,3 +183,9 @@ cython_debug/
 #Project Specific
 output_code/
 *.json
+
+# Keep bundled field assets (field image metadata) despite the *.json rule above
+!assets/fields/*.json
+
+#choreo
+/Choreo-main/

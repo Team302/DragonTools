@@ -142,14 +142,14 @@ own module/package) and call `self.tabs.addTab(widget, "Tool Name")` in
 | File                                                   | Responsibility                                                                 |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------ |
 | [`gui/suite.py`](../gui/suite.py)                      | `DragonSuiteWindow` — the tabbed suite shell that hosts every tool.            |
-| [`gui/window.py`](../gui/window.py)                    | All PyQt6 widgets: the tree, the contextual editor, dialogs, menu, and the **Generate** button. Reads/writes `project_data` **only** through `ProjectModel`. |
+| [`gui/mechanism_builder.py`](../gui/mechanism_builder.py)                    | All PyQt6 widgets: the tree, the contextual editor, dialogs, menu, and the **Generate** button. Reads/writes `project_data` **only** through `ProjectModel`. |
 | [`gui/model.py`](../gui/model.py)                       | `ProjectModel` — the Qt-free data layer. Owns `project_data`, file I/O, and every mutation/query (add/delete robot, mechanism, hardware, state, target syncing). |
 | [`gui/constants.py`](../gui/constants.py)               | Pure data: `VERSION`, `DEFAULT_PROJECT`, unit options, and `ENUM_FIELDS` (the allowed values for every CTRE enum dropdown). |
 | [`gui/hardware_defaults.py`](../gui/hardware_defaults.py) | Factory functions returning fresh default dicts for hardware, control data, and state targets. |
 
 ### How the editor renders
 
-`window.py` stores a small "node descriptor" dict on every tree item (via
+`mechanism_builder.py` stores a small "node descriptor" dict on every tree item (via
 `item.setData(0, 256, {...})`). When you click a node, `render_editor()` reads
 that descriptor and builds the right property panel:
 
@@ -277,7 +277,7 @@ every top-level key becomes a variable. See
    [`gui/hardware_defaults.py`](../gui/hardware_defaults.py) `default_hardware()`
    returning the default `config` for the type.
 2. **GUI button** — add a `+ <Type>` button in `render_add_hardware_menu()` in
-   [`gui/window.py`](../gui/window.py), wired to `self.add_hardware(mech_data, "<Type>")`.
+   [`gui/mechanism_builder.py`](../gui/mechanism_builder.py), wired to `self.add_hardware(mech_data, "<Type>")`.
 3. **Naming** — add the type to `MEMBER_TYPE_SUFFIX` (and `HARDWARE_CPP_TYPE` if
    it's a WPILib/`frc::` type, or leave it to default to `ctre::phoenix6::hardware::<Type>`)
    in [`generation/naming.py`](../generation/naming.py).

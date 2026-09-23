@@ -87,8 +87,6 @@ class MechanismEditorWindow(QMainWindow):
         self.current_selection = None
         self.current_mech_data = None
 
-        self.setup_menu_bar()
-
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
@@ -175,27 +173,6 @@ class MechanismEditorWindow(QMainWindow):
     def current_project_path(self):
         return self.model.current_project_path
 
-    def setup_menu_bar(self):
-        menubar = self.menuBar()
-        file_menu = menubar.addMenu("File")
-        
-        new_action = file_menu.addAction("New Project")
-        new_action.triggered.connect(self.new_project)
-        
-        load_action = file_menu.addAction("Load Project (JSON)")
-        load_action.setShortcut("Ctrl+O")
-        load_action.triggered.connect(self.load_project)
-        
-        file_menu.addSeparator()
-        
-        save_action = file_menu.addAction("Save Project")
-        save_action.setShortcut("Ctrl+S")
-        save_action.triggered.connect(self.save_project)
-        
-        save_as_action = file_menu.addAction("Save Project As...")
-        save_as_action.setShortcut("Ctrl+Shift+S")
-        save_as_action.triggered.connect(self.save_project_as)
-
     # --- SETTINGS / FILE I/O ---
     def new_project(self):
         self.model.new_project()
@@ -209,13 +186,20 @@ class MechanismEditorWindow(QMainWindow):
             self, "Open Project", "", "JSON Files (*.json)"
         )
         if fname:
-            self.model.load_project(fname)
-            self.model.update_app_settings(fname)
-            self.setWindowTitle(f"Team 302 Mechanism Builder - {os.path.basename(fname)}")
+            self.load_project_from_path(fname)
 
-            self.populate_tree()
-            self.clear_editor()
-            self.lbl_editor_title.setText(f"Loaded: {os.path.basename(fname)}")
+    def load_project_from_path(self, path):
+        """Load a project JSON from ``path`` and refresh the tree/editor.
+
+        Shared by this window's File > Load and the suite shell's Load action so
+        the Mechanism Generator view always refreshes after a load.
+        """
+        self.model.load_project(path)
+        self.model.update_app_settings(path)
+        self.setWindowTitle(f"Team 302 Mechanism Builder - {os.path.basename(path)}")
+        self.populate_tree()
+        self.clear_editor()
+        self.lbl_editor_title.setText(f"Loaded: {os.path.basename(path)}")
 
     def save_project(self):
         if self.current_project_path and os.path.exists(self.current_project_path):
@@ -560,6 +544,31 @@ class MechanismEditorWindow(QMainWindow):
                 self.editor_layout.addWidget(txt)
 
     # --- STATE EDITOR ---
+    @staticmethod
+    def _make_readable_combo(items, current=""):
+        """A combo box that auto-sizes to its contents and shows full-width popups.
+
+        Prevents long control-data / enum names from being truncated (e.g.
+        "Pos...inch") both in the collapsed box and in the dropdown list.
+        """
+        combo = QComboBox()
+        combo.addItems(items)
+        if current:
+            combo.setCurrentText(current)
+        combo.setStyleSheet(
+            "QComboBox { background-color: #1E1E1E; border: 1px solid #555; "
+            "color: white; padding: 3px; border-radius: 2px; }"
+        )
+        # Grow the collapsed box to fit the selected item (with a sensible floor).
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        combo.setMinimumContentsLength(12)
+        combo.setMinimumWidth(150)
+        # Widen the popup list so every option is fully readable.
+        fm = combo.fontMetrics()
+        widest = max((fm.horizontalAdvance(t) for t in items), default=0)
+        combo.view().setMinimumWidth(widest + 40)
+        return combo
+
     def _on_motor_control_data_changed(self, motor_target, cd_name, mech_data):
         """Store the chosen control data on the motor target and copy its unit."""
         motor_target["ControlData"] = cd_name
@@ -583,6 +592,16 @@ class MechanismEditorWindow(QMainWindow):
             lambda text, d=state_data: self.update_dict_and_tree(d, "name", text)
         )
         name_form.addRow("Name:", name_edit)
+
+        # Whether this state is exposed to the Auton Builder (DTD + primitive /
+        # zone / snippet dropdowns). Defaults to checked; unchecking excludes it.
+        auton_cb = QCheckBox("Auton State (available in Auton Builder)")
+        auton_cb.setStyleSheet("color: #E0E0E0;")
+        auton_cb.setChecked(state_data.get("auton_state", True))
+        auton_cb.toggled.connect(
+            lambda checked, d=state_data: d.__setitem__("auton_state", checked)
+        )
+        name_form.addRow("", auton_cb)
         self.editor_layout.addWidget(name_frame)
 
         # --- Motor targets (fixed, one per motor) ---
@@ -626,11 +645,8 @@ class MechanismEditorWindow(QMainWindow):
                     )
                 )
 
-                cd_combo = QComboBox()
-                cd_combo.addItems([""] + cd_names)
-                cd_combo.setCurrentText(mt.get("ControlData", ""))
-                cd_combo.setStyleSheet(
-                    "QComboBox { background-color: #1E1E1E; border: 1px solid #555; color: white; padding: 3px; border-radius: 2px; }"
+                cd_combo = self._make_readable_combo(
+                    [""] + cd_names, mt.get("ControlData", "")
                 )
                 cd_combo.currentTextChanged.connect(
                     lambda text, it=mt, md=mech_data: self._on_motor_control_data_changed(it, text, md)
@@ -1049,7 +1065,19 @@ class MechanismEditorWindow(QMainWindow):
                 print("Starting code generation...") 
                 generator = DragonCodeGenerator(version=VERSION) 
                 generator.generate(self.project_data)
-                QMessageBox.information(self, "Success", "Code generated successfully!")
+
+                # If an auton files folder is selected and contains the DTDs,
+                # copy them into deploy/auton/ with the mechanism states injected.
+                auton_dir = self.model.app_settings.get("auton_source_path", "")
+                dtds = generator.generate_auton_dtds(self.project_data, auton_dir)
+
+                message = "Code generated successfully!"
+                if dtds:
+                    message += (
+                        f"\n\nGenerated {len(dtds)} auton DTD(s) with mechanism "
+                        "states into deploy/auton/.\n DON'T FORGET TO UPDATE CyclePrimitives"
+                    )
+                QMessageBox.information(self, "Success", message)
             except Exception as e:
                 print(f"Error: {e}") 
                 QMessageBox.critical(self, "Error", f"Failed to generate code:\n{str(e)}")

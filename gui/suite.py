@@ -9,13 +9,17 @@ bar and status bar (it is a `QMainWindow`), so embedding it as a tab preserves a
 of its existing behavior. New tools can follow the same pattern.
 """
 
+from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
+    QFileDialog,
     QMainWindow,
+    QMessageBox,
     QTabWidget,
     QWidget,
 )
 
-from .window import MechanismEditorWindow
+from .mechanism_builder import MechanismEditorWindow
+from .auton_builder import AutonBuilderWidget
 from .constants import VERSION
 
 
@@ -35,9 +39,10 @@ class DragonSuiteWindow(QMainWindow):
         self.mechanism_generator = MechanismEditorWindow()
         self.tabs.addTab(self.mechanism_generator, "Mechanism Generator")
 
-        # --- Tab 2: Auton Builder (blank placeholder for the next tool) ---
-        self.auton_builder = QWidget()
+        # --- Tab 2: Auton Builder ---
+        self.auton_builder = AutonBuilderWidget(self.mechanism_generator.model)
         self.tabs.addTab(self.auton_builder, "Auton Builder")
+        self._setup_suite_menu()
 
         # Restore the tab the user was last on, then persist future changes.
         # Settings live in the Mechanism Generator's model (tool_settings.json),
@@ -48,7 +53,69 @@ class DragonSuiteWindow(QMainWindow):
             self.tabs.setCurrentIndex(last_tab)
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
+    def _setup_suite_menu(self):
+        file_menu = self.menuBar().addMenu("File")
+        new_action = file_menu.addAction("New Project")
+        new_action.triggered.connect(self._new_project)
+        load_action = file_menu.addAction("Load Project (JSON)")
+        load_action.triggered.connect(self._load_project)
+        file_menu.addSeparator()
+        save_action = file_menu.addAction("Save Project")
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self._save_project)
+        save_as_action = file_menu.addAction("Save Project As...")
+        save_as_action.triggered.connect(self._save_project_as)
+
+        options_menu = self.menuBar().addMenu("Options")
+        select_auton_action = options_menu.addAction("Select Auton Files Folder...")
+        select_auton_action.triggered.connect(self.auton_builder.select_auton_folder)
+        select_path_action = options_menu.addAction("Select Choreo Path Folder...")
+        select_path_action.triggered.connect(self.auton_builder.select_choreo_folder)
+
+        options_menu.addSeparator()
+        view_menu = options_menu.addMenu("Auton Editor View")
+        view_group = QActionGroup(self)
+        view_group.setExclusive(True)
+        inline_action = view_menu.addAction("Inline (full editors)")
+        inline_action.setCheckable(True)
+        inline_action.triggered.connect(lambda: self.auton_builder.set_view_mode("inline"))
+        list_action = view_menu.addAction("List (navigable)")
+        list_action.setCheckable(True)
+        list_action.triggered.connect(lambda: self.auton_builder.set_view_mode("list"))
+        view_group.addAction(inline_action)
+        view_group.addAction(list_action)
+        inline_action.setChecked(self.auton_builder.view_mode == "inline")
+        list_action.setChecked(self.auton_builder.view_mode == "list")
+
+    def _new_project(self):
+        self.mechanism_generator.new_project()
+        # Auton data is folder-based, independent of the mechanism project, so a
+        # new mechanism project just re-reads the current auton files folder.
+        self.auton_builder._load_from_source_folder()
+        self.auton_builder.refresh_tree()
+        self.auton_builder.refresh_field()
+
+    def _load_project(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Project", "", "JSON Files (*.json)"
+        )
+        if not path:
+            return
+        # Load into the Mechanism Generator and refresh its tree/editor.
+        self.mechanism_generator.load_project_from_path(path)
+        # Auton builder reflects any new mechanism states from the loaded project.
+        self.auton_builder._load_saved_data()
+        self.auton_builder.refresh_tree()
+        self.auton_builder.refresh_field()
+
+    def _save_project(self):
+        if self.auton_builder.save_to_project():
+            return
+        self.auton_builder.save_to_project_as()
+
+    def _save_project_as(self):
+        self.auton_builder.save_to_project_as()
+
     def _on_tab_changed(self, index):
         """Remember the active tab so the suite reopens to it next launch."""
         self._settings.set_app_setting("last_tab", index)
-
