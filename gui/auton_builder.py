@@ -976,8 +976,26 @@ class AutonBuilderWidget(QWidget):
         self._load_auton_examples(folder)
         self._save_data()
 
+    @staticmethod
+    def _find_data_subdir(parent, expected_name):
+        """Find a data subdirectory without depending on its case or plurality."""
+        expected = expected_name.lower()
+        aliases = {
+            "zone": {"zone", "zones"},
+            "snippet": {"snippet", "snippets"},
+        }
+        accepted = aliases.get(expected, {expected})
+        try:
+            entries = os.listdir(parent)
+        except OSError:
+            return os.path.join(parent, expected_name)
+        for entry in entries:
+            if entry.lower() in accepted and os.path.isdir(os.path.join(parent, entry)):
+                return os.path.join(parent, entry)
+        return os.path.join(parent, expected_name)
+
     def _load_zone_examples(self, example_dir):
-        zone_dir = os.path.join(example_dir, "Zone")
+        zone_dir = self._find_data_subdir(example_dir, "zone")
         if not os.path.isdir(zone_dir):
             return
         for name in sorted(os.listdir(zone_dir)):
@@ -997,7 +1015,7 @@ class AutonBuilderWidget(QWidget):
             self.zones.append(zone)
 
     def _load_snippet_examples(self, example_dir):
-        snippet_dir = os.path.join(example_dir, "Snippets")
+        snippet_dir = self._find_data_subdir(example_dir, "snippet")
         if not os.path.isdir(snippet_dir):
             return
         for name in sorted(os.listdir(snippet_dir)):
@@ -1060,8 +1078,8 @@ class AutonBuilderWidget(QWidget):
                 "Options -> Select Auton Files Folder first."
             )
         try:
-            zone_dir = os.path.join(folder, "Zone")
-            snippet_dir = os.path.join(folder, "Snippets")
+            zone_dir = self._find_data_subdir(folder, "zone")
+            snippet_dir = self._find_data_subdir(folder, "snippet")
             os.makedirs(zone_dir, exist_ok=True)
             os.makedirs(snippet_dir, exist_ok=True)
 
@@ -2222,4 +2240,3 @@ class AutonBuilderWidget(QWidget):
             float(bump.get("back", 0.4)),
         )
         return {"samples": samples, "bumper": bumper}
-
