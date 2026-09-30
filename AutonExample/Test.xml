@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE auton SYSTEM "auton.dtd">
-<auton>
-    <primitive id="TRAJECTORY_DRIVE" time="5.0" choreoname="BlueMLDrop3_A_Var2">
-        <zone filename="BlueLeftBumpZoneRect.xml" />
-    </primitive>
-</auton>
