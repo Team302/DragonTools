@@ -73,7 +73,9 @@ class ProjectModel:
     def add_mechanism(self, robot_id, mech_name):
         self.project_data["robots"][robot_id]["mechanisms"][mech_name] = {
             "hardware": [],
-            "control_data": [],
+            # Every mechanism starts with a default PercentOut (DutyCycleOut)
+            # control-data block; new states default their targets to it.
+            "control_data": [hwd.default_percent_out_control_data()],
             "states": [],
         }
 
@@ -192,6 +194,7 @@ class ProjectModel:
         existing_motors = {
             mt.get("HardwareName"): mt for mt in state_data.get("motor_targets", [])
         }
+        default_cd = self.default_control_data_name(mech_data)
         synced_motors = []
         for name in motors:
             mt = existing_motors.get(name) or {
@@ -202,7 +205,9 @@ class ProjectModel:
             mt["HardwareName"] = name
             mt.setdefault("Enabled", True)
             mt.setdefault("TargetValue", 0.0)
-            mt.setdefault("ControlData", "")
+            # New targets default to the mechanism's control data (PercentOut);
+            # existing targets keep whatever the user already chose.
+            mt.setdefault("ControlData", default_cd)
             # Mirror the unit from the selected control data (picks up later edits).
             mt["Unit"] = self.control_data_unit(mech_data, mt.get("ControlData", ""))
             synced_motors.append(mt)
@@ -232,13 +237,17 @@ class ProjectModel:
 
         hw_name = new_hw.get("name")
         hw_type = new_hw.get("type")
+        default_cd = self.default_control_data_name(mech_data)
         for st in mech_data.get("states", []):
             if isinstance(st, dict):
                 if hw_type in ["TalonFX", "TalonFXS"]:
                     if "motor_targets" not in st:
                         st["motor_targets"] = []
                     if not any(mt.get("HardwareName") == hw_name for mt in st["motor_targets"]):
-                        st["motor_targets"].append(hwd.default_motor_target(hw_name))
+                        mt = hwd.default_motor_target(hw_name)
+                        mt["ControlData"] = default_cd
+                        mt["Unit"] = self.control_data_unit(mech_data, default_cd)
+                        st["motor_targets"].append(mt)
 
                 if hw_type == "Solenoid":
                     if "solenoid_targets" not in st:
@@ -252,12 +261,26 @@ class ProjectModel:
         mech_data["control_data"].append(hwd.default_control_data())
         return len(mech_data["control_data"]) - 1
 
+    def default_control_data_name(self, mech_data):
+        """The control-data name new state targets default to.
+
+        Prefers the standard ``PercentOut`` block if present, otherwise the first
+        control-data block, otherwise an empty string.
+        """
+        names = [cd.get("name", "") for cd in mech_data.get("control_data", [])]
+        if hwd.DEFAULT_CONTROL_DATA_NAME in names:
+            return hwd.DEFAULT_CONTROL_DATA_NAME
+        return names[0] if names else ""
+
     def add_state(self, mech_data):
-        motor_targets = [
-            hwd.default_motor_target(hw["name"])
-            for hw in mech_data.get("hardware", [])
-            if hw.get("type") in ["TalonFX", "TalonFXS"]
-        ]
+        default_cd = self.default_control_data_name(mech_data)
+        motor_targets = []
+        for hw in mech_data.get("hardware", []):
+            if hw.get("type") in ["TalonFX", "TalonFXS"]:
+                mt = hwd.default_motor_target(hw["name"])
+                mt["ControlData"] = default_cd
+                mt["Unit"] = self.control_data_unit(mech_data, default_cd)
+                motor_targets.append(mt)
         solenoid_targets = [
             hwd.default_solenoid_target(hw["name"])
             for hw in mech_data.get("hardware", [])

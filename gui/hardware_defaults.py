@@ -47,6 +47,19 @@ def default_control_data():
     }
 
 
+# Name of the control-data block auto-created for every new mechanism. New
+# states default their motor targets to this block.
+DEFAULT_CONTROL_DATA_NAME = "PercentOut"
+
+
+def default_percent_out_control_data():
+    """The default ``PercentOut`` (DutyCycleOut) control-data block."""
+    cd = default_control_data()
+    cd["name"] = DEFAULT_CONTROL_DATA_NAME
+    cd["ControlRequest"] = "DutyCycleOut"
+    return cd
+
+
 def default_hardware(hw_type, name):
     """Build the default config dictionary for a piece of hardware."""
     new_hw = {"type": hw_type, "name": name, "id": 0, "bus": "canivore"}
