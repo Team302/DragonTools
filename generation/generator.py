@@ -310,8 +310,8 @@ class DragonCodeGenerator():
             {"primitive": state_fields},
         )
         written += self._copy_dtd_with_states(
-            os.path.join(auton_source_dir, "Zone", "zone.dtd"),
-            os.path.join(deploy_auton, "Zone", "zone.dtd"),
+            os.path.join(auton_source_dir, "zones", "zone.dtd"),
+            os.path.join(deploy_auton, "zones", "zone.dtd"),
             {"zone": state_fields},
         )
         return written
