@@ -1,0 +1,58 @@
+//====================================================================================================================================================
+// Copyright 2026 Lake Orion Robotics FIRST Team 302
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+// OR OTHER DEALINGS IN THE SOFTWARE.
+//====================================================================================================================================================
+
+#pragma once
+#include <array>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "wpi/math/geometry/Pose2d.hpp"
+#include "wpi/math/geometry/Pose3d.hpp"
+#include "wpi/math/kinematics/ChassisVelocities.hpp"
+#include "wpi/math/kinematics/SwerveModuleVelocity.hpp"
+#include "wpi/system/Timer.hpp"
+
+class DragonDataLoggerMgr;
+class ISignalLogger;
+
+class DragonDataLogger
+{
+public:
+    DragonDataLogger();
+    virtual ~DragonDataLogger() = default;
+
+    virtual void DataLog(uint64_t timestamp) = 0;
+
+    wpi::units::time::second_t m_latency = wpi::units::time::second_t(0);
+
+protected:
+    void LogBoolData(uint64_t timestamp, const std::string_view &path, bool value);
+    void LogIntData(uint64_t timestamp, const std::string_view &path, int value, std::string_view units = "");
+    void LogDoubleData(uint64_t timestamp, const std::string_view &path, double value, std::string_view units = "");
+    void LogStringData(uint64_t timestamp, const std::string_view &path, const std::string &value);
+    void LogDoubleArrayData(uint64_t timestamp, const std::string_view &path, const std::vector<double> &value, std::string_view units = "");
+    void LogSwerveModuleStateData(uint64_t timestamp, const std::string_view &path, const std::array<wpi::math::SwerveModuleVelocity, 4> &value);
+    void LogChassisSpeedsData(uint64_t timestamp, const std::string_view &path, const wpi::math::ChassisVelocities &value);
+    void LogGamePadData(uint64_t timestamp, const std::string_view &path, const std::array<double, 6> &axes, const std::array<bool, 10> &buttons, const std::array<int, 1> &povs);
+    void LogPose2dData(uint64_t timestamp, const std::string_view &path, const wpi::math::Pose2d &value);
+    void LogPose3dData(uint64_t timestamp, const std::string_view &path, const wpi::math::Pose3d &value);
+
+    const double m_doubleTolerance = 0.001;
+
+private:
+    ISignalLogger *GetLogger() const;
+    DragonDataLoggerMgr *m_dataMgr = nullptr;
+};

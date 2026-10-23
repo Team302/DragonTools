@@ -1,0 +1,246 @@
+//====================================================================================================================================================
+// Copyright 2026 Lake Orion Robotics FIRST Team 302
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+// OR OTHER DEALINGS IN THE SOFTWARE.
+//====================================================================================================================================================
+
+// co-Author: notcharlie, creator of dumb code / copy paster of better code
+
+// Includes
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
+
+#include <sys/stat.h>
+
+#ifdef __linux
+#include <dirent.h>
+#endif
+
+#include "wpi/nt/NetworkTableInstance.hpp"
+#include <wpi/smartdashboard/SmartDashboard.hpp>
+#include <wpi/system/Filesystem.hpp>
+
+// Team302 includes
+#include "auton/AutonSelector.h"
+#include "feedback/DriverFeedback.h"
+#include "utils/FMSData.h"
+#include "utils/logging/debug/Logger.h"
+
+#include <pugixml/pugixml.hpp>
+
+using namespace std;
+using wpi::DriverStation;
+
+//---------------------------------------------------------------------
+// Method: 		<<constructor>>
+// Description: This creates this object and reads the auto script (CSV)
+//  			files and displays a list on the dashboard.
+//---------------------------------------------------------------------
+AutonSelector *AutonSelector::m_instance = nullptr;
+AutonSelector *AutonSelector::GetInstance()
+{
+	if (AutonSelector::m_instance == nullptr)
+	{
+		AutonSelector::m_instance = new AutonSelector();
+	}
+	return AutonSelector::m_instance;
+}
+
+AutonSelector::AutonSelector()
+{
+	PutChoicesOnDashboard();
+}
+
+string AutonSelector::GetSelectedAutoFile()
+{
+	std::string autonfile(wpi::filesystem::GetDeployDirectory());
+	autonfile += std::filesystem::path("/auton/").string();
+	autonfile += GetAlianceColor();
+	autonfile += GetStartPos();
+	autonfile += GetDesiredPreload();
+	autonfile += GetNeutralZoneAmount();
+	autonfile += GetNeutralZoneArea();
+	autonfile += GetDepotOption();
+	autonfile += GetOutpostOption();
+	autonfile += GetFuelStrategy();
+	autonfile += GetClimbingOption();
+	autonfile += GetVariation();
+	autonfile += std::string(".xml");
+
+	Logger::GetLogger()->LogData(LOGGER_LEVEL::PRINT, string("auton"), string("file"), autonfile);
+
+	auto table = wpi::nt::NetworkTableInstance::GetDefault().GetTable("auton file");
+
+	table.get()->PutString("determined name", autonfile);
+
+	bool fileExists = FileExists(autonfile);
+	bool fileValid = FileValid(autonfile);
+
+	DriverFeedback::GetInstance()->SetIsValidAutonFile(fileExists && fileValid);
+
+	table.get()->PutBoolean("File Exists", fileExists);
+	table.get()->PutBoolean("File Valid", fileValid);
+
+	if (!fileExists || !fileValid)
+	{
+		autonfile = wpi::filesystem::GetDeployDirectory();
+		autonfile += std::filesystem::path("/auton/").string();
+		autonfile += GetAlianceColor();
+		autonfile += ("DefaultFile.xml");
+	}
+
+	table.get()->PutString("actual file", autonfile);
+
+	return autonfile;
+}
+
+bool AutonSelector::FileExists(const std::string &name)
+{
+	struct stat buffer;
+	return (stat(name.c_str(), &buffer) == 0);
+}
+
+bool AutonSelector::FileValid(const std::string &name)
+{
+
+	pugi::xml_document doc;
+	pugi::xml_parse_result result = doc.load_file(name.c_str());
+	if (result)
+	{
+		return true;
+	}
+	Logger::GetLogger()->LogData(LOGGER_LEVEL::ERROR, string("AutonSelector"), string("FileInvalid: Description ") + name, string(result.description()));
+	Logger::GetLogger()->LogData(LOGGER_LEVEL::ERROR, string("AutonSelector"), string("FileInvalid: Offset ") + name, static_cast<int>(result.offset));
+	return false;
+}
+
+string AutonSelector::GetAlianceColor()
+{
+	return (FMSData::GetAllianceColor() == wpi::Alliance::RED) ? std::string("Red") : std::string("Blue");
+}
+
+string AutonSelector::GetStartPos()
+{
+	return m_startposchooser.GetSelected();
+}
+
+string AutonSelector::GetNeutralZoneAmount()
+{
+	return m_neutralZoneAmount.GetSelected();
+}
+
+string AutonSelector::GetNeutralZoneArea()
+{
+	return m_neutralZoneArea.GetSelected();
+}
+
+string AutonSelector::GetDepotOption()
+{
+	return m_targetDepot.GetSelected();
+}
+
+string AutonSelector::GetOutpostOption()
+{
+	return m_targetOutpost.GetSelected();
+}
+string AutonSelector::GetClimbingOption()
+{
+	return m_climbing.GetSelected();
+}
+string AutonSelector::GetDesiredPreload()
+{
+	return m_desiredPreload.GetSelected();
+}
+string AutonSelector::GetFuelStrategy()
+{
+	return m_fuelStrategy.GetSelected();
+}
+string AutonSelector::GetVariation()
+{
+	return m_variation.GetSelected();
+}
+
+//---------------------------------------------------------------------
+// Method: 		PutChoicesOnDashboard
+// Description: This puts the list of files in the m_csvFiles attribute
+//				up on the dashboard for selection.
+// Returns:		void
+//---------------------------------------------------------------------
+void AutonSelector::PutChoicesOnDashboard()
+{
+	// Starting Position
+	m_startposchooser.AddOption("Trench Depot Side", "TDep");
+	m_startposchooser.AddOption("Bump Depot Side", "BDep");
+	m_startposchooser.AddOption("Hub", "Hub");
+	m_startposchooser.AddOption("Bump Outpost Side", "BOut");
+	m_startposchooser.SetDefaultOption("Trench Outpost Side", "TOut");
+	wpi::SmartDashboard::PutData("StartPos", &m_startposchooser);
+
+	// Amount of times going into NZ
+	m_neutralZoneAmount.AddOption("0", "0");
+	m_neutralZoneAmount.AddOption("1", "1");
+	m_neutralZoneAmount.AddOption("2", "2");
+	m_neutralZoneAmount.AddOption("3", "3");
+	m_neutralZoneAmount.AddOption("4", "4");
+	m_neutralZoneAmount.AddOption("5", "5");
+	m_neutralZoneAmount.SetDefaultOption("3", "3");
+	wpi::SmartDashboard::PutData("Times in Neutral Zone", &m_neutralZoneAmount);
+
+	// Area in NZ
+	m_neutralZoneArea.AddOption("Half Field", "Half");
+	m_neutralZoneArea.AddOption("Full Field", "Full");
+	m_neutralZoneArea.AddOption("Both", "Combo");
+	m_neutralZoneArea.AddOption("No Variation", "");
+	m_neutralZoneArea.SetDefaultOption("No Variation", "");
+	wpi::SmartDashboard::PutData("Desired Neutral Zone Coverage", &m_neutralZoneArea);
+
+	// Depot Option
+	m_targetDepot.AddOption("true", "Dep");
+	m_targetDepot.AddOption("false", "NDep");
+	m_targetDepot.SetDefaultOption("false", "NDep");
+	wpi::SmartDashboard::PutData("Has Depot?", &m_targetDepot);
+
+	// Outpost Option
+	m_targetOutpost.AddOption("true", "Out");
+	m_targetOutpost.AddOption("false", "NOut");
+	m_targetOutpost.SetDefaultOption("false", "NOut");
+	wpi::SmartDashboard::PutData("Has Outpost?", &m_targetOutpost);
+
+	// Climbing Option
+	m_climbing.AddOption("true", "Climb");
+	m_climbing.AddOption("false", "NCli");
+	m_climbing.SetDefaultOption("false", "NCli");
+	wpi::SmartDashboard::PutData("Climb?", &m_climbing);
+
+	// Preload Option
+	m_desiredPreload.AddOption("Launch", "Launch");
+	m_desiredPreload.AddOption("Drop", "Drop");
+	m_desiredPreload.AddOption("Keep", "Keep");
+	m_desiredPreload.SetDefaultOption("Keep", "Keep");
+	wpi::SmartDashboard::PutData("Desired Preload", &m_desiredPreload);
+
+	// Fuel Strategy Option
+	m_fuelStrategy.AddOption("Score", "Score");
+	m_fuelStrategy.AddOption("Pass", "Pass");
+	m_fuelStrategy.SetDefaultOption("Score", "Score");
+	wpi::SmartDashboard::PutData("Desired Strategy", &m_fuelStrategy);
+
+	// Variation Option
+	m_variation.AddOption("Winning Auton Variation", "Win");
+	m_variation.AddOption("Losing Auton Variation", "Lose");
+	m_variation.AddOption("Inverted Variation", "Invert");
+	m_variation.AddOption("No Variation", "");
+	m_variation.SetDefaultOption("No Variation", "");
+	wpi::SmartDashboard::PutData("Variation", &m_variation);
+}

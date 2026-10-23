@@ -1,0 +1,87 @@
+//====================================================================================================================================================
+// Copyright 2026 Lake Orion Robotics FIRST Team 302
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+// OR OTHER DEALINGS IN THE SOFTWARE.
+//====================================================================================================================================================
+
+#pragma once
+
+// C++ Includes
+
+// FRC includes
+
+// Team 302 includes
+
+class TeleopControlFunctions
+{
+public:
+    enum FUNCTION
+    {
+        // General Drive Commands
+        ROBOT_ORIENTED_DRIVE,
+        HOLONOMIC_DRIVE_FORWARD,
+        HOLONOMIC_DRIVE_ROTATE,
+        HOLONOMIC_DRIVE_STRAFE,
+        AUTO_TURN_FORWARD,
+        AUTO_TURN_BACKWARD,
+        RESET_POSITION,
+        SLOW_MODE,
+        SYSID_MODIFER,
+        SYSID_QUASISTATICFORWARD,
+        SYSID_QUASISTATICREVERSE,
+        SYSID_DYNAMICFORWARD,
+        SYSID_DYNAMICREVERSE,
+        TIPCORRECTION_TOGGLE,
+
+        // Season Specific Drive Commands
+        DRIVE_OVER_BUMP,
+        DRIVE_ALONG_NEAREST_WALL,
+        DRIVE_TO_HUB,
+        DRIVE_TO_OUTPOST,
+        DRIVE_TO_TOWER,
+        SWEEP_BEHIND_HUB,
+        SWEEP_BEHIND_HUB_INCREMENT,
+        SWEEP_BEHIND_HUB_DECREMENT,
+        DRIVE_TO_DEPOT,
+        DRIVE_TO_FUEL,
+        AUTO_DEFEND,
+        DRIVE_TO_TRENCH,
+
+        // Mechanisms specific
+        // Intake
+        INTAKE,
+        EXPEL,
+        INTAKE_OUT,
+        INTAKE_IN,
+        MANUAL_INTAKE_OUT,
+        MANUAL_INTAKE_IN,
+        EXTENDER_MODIFIER,
+
+        // LAUNCHER
+        LAUNCHER_OFF,
+        LAUNCH,
+        LAUNCH_OVERRIDE,
+        MANUAL_LAUNCH,
+        TURRET_ENABLE,
+
+        // TARGET OFFSETS
+        UPDATE_TARGET_OFFSET_UP,
+        UPDATE_TARGET_OFFSET_DOWN,
+        UPDATE_TARGET_OFFSET_LEFT,
+        UPDATE_TARGET_OFFSET_RIGHT,
+        UPDATE_DEPOT_PASSING_TARGET_X,
+        UPDATE_DEPOT_PASSING_TARGET_Y,
+        UPDATE_OUTPOST_PASSING_TARGET_X,
+        UPDATE_OUTPOST_PASSING_TARGET_Y
+
+    };
+};

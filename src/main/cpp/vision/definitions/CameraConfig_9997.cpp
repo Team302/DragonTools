@@ -1,0 +1,56 @@
+//====================================================================================================================================================
+// Copyright 2026 Lake Orion Robotics FIRST Team 302
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+// OR OTHER DEALINGS IN THE SOFTWARE.
+//====================================================================================================================================================
+
+#include <memory>
+#include <string>
+
+#include "utils/logging/debug/Logger.h"
+#include "vision/DragonLimelight.h"
+#include "vision/DragonQuest.h"
+#include "vision/DragonVision.h"
+#include "vision/definitions/CameraConfig_9997.h"
+
+void CameraConfig_9997::BuildCameraConfig()
+{
+    auto vision = DragonVision::GetDragonVision();
+    if (vision == nullptr)
+    {
+        return;
+    }
+
+    m_limelightFront = std::make_unique<DragonLimelight>(std::string("limelight-front"), // networkTableName
+                                                         DRAGON_LIMELIGHT_CAMERA_IDENTIFIER::FRONT,
+                                                         DRAGON_LIMELIGHT_CAMERA_TYPE::LIMELIGHT4,  // PIPELINE initialPipeline,
+                                                         DRAGON_LIMELIGHT_CAMERA_USAGE::APRIL_TAGS, // PIPELINE initialPipeline,
+                                                         wpi::units::length::inch_t(m_limelightFrontMountingXOffset),
+                                                         wpi::units::length::inch_t(m_limelightFrontMountingYOffset),
+                                                         wpi::units::length::inch_t(m_limelightFrontMountingZOffset),
+                                                         wpi::units::angle::degree_t(m_limelightFrontPitch),
+                                                         wpi::units::angle::degree_t(m_limelightFrontYaw),
+                                                         wpi::units::angle::degree_t(m_limelightFrontRoll),
+                                                         DRAGON_LIMELIGHT_PIPELINE::APRIL_TAG, /// <I> enum for starting pipeline
+                                                         DRAGON_LIMELIGHT_LED_MODE::LED_OFF    // DRAGON_LIMELIGHT_LED_MODE ledMode
+    );
+    vision->AddLimelight(std::move(m_limelightFront), DRAGON_LIMELIGHT_CAMERA_USAGE::APRIL_TAGS);
+
+    // m_quest = std::make_unique<DragonQuest>(wpi::units::length::inch_t(9.75), // <I> x offset of Quest from robot center (forward relative to robot)
+    //                                         wpi::units::length::inch_t(0),    // <I> y offset of Quest from robot center (left relative to robot)
+    //                                         wpi::units::length::inch_t(13),   // <I> z offset of Quest from robot center (up relative to robot)
+    //                                         wpi::units::angle::degree_t(0),   // <I> - Pitch of Quest
+    //                                         wpi::units::angle::degree_t(0),   // <I> - Yaw of Quest
+    //                                         wpi::units::angle::degree_t(0)    // <I> - Roll of Quest
+    // );
+    // vision->AddQuest(std::move(m_quest));
+}

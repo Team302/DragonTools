@@ -30,7 +30,9 @@ UNIT_PREFIXES = {
     "double": "double",
     "turn": "wpi::units::angle::turn_t",
     "inch": "wpi::units::length::inch_t",
+    "meter": "wpi::units::length::meter_t",
     "deg": "wpi::units::angle::degree_t",
+    "rad": "wpi::units::angle::radian_t",
     "RPM": "wpi::units::angular_velocity::revolutions_per_minute_t",
     "volt": "wpi::units::voltage::volt_t",
 }
@@ -39,7 +41,9 @@ UNIT_PREFIXES = {
 UNIT_INCLUDES = {
     "turn": "wpi/units/angle.hpp",
     "inch": "wpi/units/length.hpp",
+    "meter": "wpi/units/length.hpp",
     "deg": "wpi/units/angle.hpp",
+    "rad": "wpi/units/angle.hpp",
     "RPM": "wpi/units/angular_velocity.hpp",
     "volt": "wpi/units/voltage.hpp",
 }
@@ -49,7 +53,9 @@ SHORT_UNIT_SUFFIX = {
     "double": "",
     "turn": "_tr",
     "inch": "_in",
+    "meter": "_m",
     "deg": "_deg",
+    "rad": "_rad",
     "RPM": "_rpm",
     "volt": "_V",
 }

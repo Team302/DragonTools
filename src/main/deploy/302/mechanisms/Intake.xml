@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MechanismParameters xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <MotorControlData>
+    <MinimalMotorControlData name="m_percentOut" pGain="0.0" iGain="0.0" dGain="0.0" fGain="0.0" iZone="0.0" sGain="0.0" vGain="0.0" aGain="0.0" maxAcceleration="0.0" cruiseVelocity="0.0" />
+    <MinimalMotorControlData name="m_positionDeg" pGain="1.0" iGain="0.5" dGain="0.0" fGain="1.0" iZone="0.0" sGain="0.0" vGain="0.0" aGain="0.0" maxAcceleration="300.0" cruiseVelocity="150.0" />
+  </MotorControlData>
+</MechanismParameters>

@@ -1,0 +1,68 @@
+//====================================================================================================================================================
+// Copyright 2026 Lake Orion Robotics FIRST Team 302
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+// OR OTHER DEALINGS IN THE SOFTWARE.
+//====================================================================================================================================================
+
+#include <memory>
+#include <string>
+
+#include "utils/logging/debug/Logger.h"
+#include "vision/DragonVision.h"
+#include "vision/definitions/CameraConfig_9998.h"
+
+void CameraConfig_9998::BuildCameraConfig()
+{
+    auto vision = DragonVision::GetDragonVision();
+    if (vision == nullptr)
+    {
+        return;
+    }
+
+    m_limelightFront = std::make_unique<DragonLimelight>(std::string("limelight-lfront"), // networkTableName
+                                                         DRAGON_LIMELIGHT_CAMERA_IDENTIFIER::UPPER_FRONT,
+                                                         DRAGON_LIMELIGHT_CAMERA_TYPE::LIMELIGHT4,  // PIPELINE initialPipeline,
+                                                         DRAGON_LIMELIGHT_CAMERA_USAGE::APRIL_TAGS, // PIPELINE initialPipeline,
+                                                         wpi::units::length::inch_t(m_limelightFrontMountingXOffset),
+                                                         wpi::units::length::inch_t(m_limelightFrontMountingYOffset),
+                                                         wpi::units::length::inch_t(m_limelightFrontMountingZOffset),
+                                                         wpi::units::angle::degree_t(m_limelightFrontPitch),
+                                                         wpi::units::angle::degree_t(m_limelightFrontYaw),
+                                                         wpi::units::angle::degree_t(m_limelightFrontRoll),
+                                                         DRAGON_LIMELIGHT_PIPELINE::APRIL_TAG, /// <I> enum for starting pipeline
+                                                         DRAGON_LIMELIGHT_LED_MODE::LED_OFF    // DRAGON_LIMELIGHT_LED_MODE ledMode
+    );
+    vision->AddLimelight(std::move(m_limelightFront), DRAGON_LIMELIGHT_CAMERA_USAGE::APRIL_TAGS);
+
+    m_limelightfront3 = std::make_unique<DragonLimelight>(std::string("limelight-ufront"), // networkTableName
+                                                          DRAGON_LIMELIGHT_CAMERA_IDENTIFIER::LOWER_FRONT,
+                                                          DRAGON_LIMELIGHT_CAMERA_TYPE::LIMELIGHT3,        // PIPELINE initialPipeline,
+                                                          DRAGON_LIMELIGHT_CAMERA_USAGE::OBJECT_DETECTION, // PIPELINE initialPipeline,
+                                                          wpi::units::length::inch_t(m_limelightFront3MountingXOffset),
+                                                          wpi::units::length::inch_t(m_limelightFront3MountingYOffset),
+                                                          wpi::units::length::inch_t(m_limelightFront3MountingZOffset),
+                                                          wpi::units::angle::degree_t(m_limelightFront3Pitch),
+                                                          wpi::units::angle::degree_t(m_limelightFront3Yaw),
+                                                          wpi::units::angle::degree_t(m_limelightFront3Roll),
+                                                          DRAGON_LIMELIGHT_PIPELINE::FUEL_PL, /// <I> enum for starting pipeline
+                                                          DRAGON_LIMELIGHT_LED_MODE::LED_OFF  // DRAGON_LIMELIGHT_LED_MODE ledMode
+    );
+    vision->AddLimelight(std::move(m_limelightfront3), DRAGON_LIMELIGHT_CAMERA_USAGE::OBJECT_DETECTION);
+
+    auto quest = std::make_unique<DragonQuest>(wpi::units::length::inch_t(m_questMountingXOffset),
+                                               wpi::units::length::inch_t(m_questMountingYOffset),
+                                               wpi::units::length::inch_t(m_questMountingZOffset),
+                                               wpi::units::angle::degree_t(m_questPitch),
+                                               wpi::units::angle::degree_t(m_questYaw),
+                                               wpi::units::angle::degree_t(m_questRoll));
+    vision->AddQuest(std::move(quest));
+}

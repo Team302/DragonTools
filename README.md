@@ -21,6 +21,7 @@ GUI (PyQt6)  →  project JSON  →  code generator  →  Jinja2 templates  → 
 | ----------------------- | ------------- | ------------------------------------------------------- |
 | **Mechanism Generator** | Available     | Generates mechanism/command/container C++ + control XML.|
 | **Auton Builder**       | Placeholder   | Reserved blank tab for the upcoming autonomous tool.    |
+| **Camera Creator**      | Available     | Configures robot cameras with a live interactive 3D mounting preview and C++ export. |
 
 ---
 
@@ -63,7 +64,7 @@ From the repository root:
 python main.py
 ```
 
-This launches the Mechanism Editor window. The tool remembers the last project
+This launches the tabbed Dragon Tool Suite window. The tool remembers the last project
 you opened (stored in `tool_settings.json`) and reloads it on startup.
 
 ### Typical workflow
@@ -89,6 +90,67 @@ output_code/
       <Mech><State>Command.h / .cpp     # one command class per state
   src/main/deploy/<team>/mechanisms/
     <Mech>.xml                          # per-team control-data XML
+```
+
+---
+
+### Camera Creator workflow
+
+1. Add your robots in **Mechanism Generator**, then open **Camera Creator** and
+   select a robot. Camera settings belong to that robot in the same project JSON.
+2. Enter the robot **length** (front to back) and **width** (left to right).
+   Defaults are 30 inches; replace them with your robot's dimensions.
+3. Use **+ Add Limelight** or **+ Add Quest**. Select a device to edit its mounting
+   X/Y/Z and pitch/yaw/roll. Limelights also expose their NetworkTables name,
+   identifier, model, usage, initial pipeline, and LED mode from the robot APIs.
+   Names must use lowercase letters, numbers and hyphens, starting with a letter.
+4. Every length and angle field has its own unit dropdown beside it. Lengths
+   default to **inches** (or **meters**) and angles to **degrees** (or
+   **radians**); switching a field's unit converts its display without
+   changing the mounting pose. Values are shown and generated with 4 decimal
+   places. Generated C++ uses each field's unit literal
+   (`_in` / `_m` and `_deg` / `_rad`), reusing the generator's unit suffix helpers
+   without explicit C++ type wrappers or conversion calls.
+5. Drag the **3D preview** to orbit, scroll to zoom, or select Top, Front, Left,
+   or Reset 3D. The highlighted device is the selected camera. Its main arrow
+   shows its facing direction; the blue line shows its local up direction, so
+   roll is visible too. Robot/device thicknesses and device sizes are illustrative.
+6. **Save Project** (Ctrl+S) saves cameras and dimensions alongside mechanisms.
+   **Generate Camera C++** exports all configured robots' camera definitions;
+   **Generate C++ Code** in Mechanism Generator also includes them.
+
+Robot space matches the supplied `DragonLimelight` / `DragonQuest` constructors:
+**+X forward, +Y left, +Z up**, measured from robot center at floor level.
+The rotation is WPILib's `Rz(yaw) * Ry(pitch) * Rx(roll)`: positive yaw turns
+left, positive pitch tilts down, and roll turns around local forward.
+The linked [Limelight pose documentation](https://docs.limelightvision.io/docs/docs-limelight/pipeline-apriltag/apriltag-robot-localization-megatag2#configuring-your-limelights-robot-space-pose)
+describes an offset labeled Right: if entering values in such a UI, **Right = -Y**.
+Generated code uses the robot API's **left-positive** convention directly.
+
+The current robot API provides four distinct Limelight identifiers and a single
+Quest registration per robot. The editor prevents adding more than four
+Limelights or one Quest; generation also rejects duplicate identifiers/names,
+unsupported options, invalid values and ambiguous team numbers.
+
+Camera files are written under
+`output_code/src/main/cpp/vision/definitions/`:
+
+- `CameraConfig_<ROBOT_ID>.h` / `.cpp` for each configured robot.
+- `CameraConfigMgr.h` / `.cpp` mapping those robots' `RobotIdentifier` entries
+  to their configurations. **This replaces the robot project's existing camera
+  manager mappings**; only robots configured in this project are mapped. There
+  is no implicit simulation mapping.
+
+Generate the matching `RobotIdentifier.h` using Mechanism Generator, then copy
+the generated files into your robot project, retaining its existing base
+`CameraConfig` and vision implementation. The generator does not modify the
+reference robot sources. Older projects without camera settings are unchanged
+and do not emit camera files. Stale files from earlier exports are not deleted.
+
+Run camera data, generation, GUI and suite integration tests with:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_cameras.py -v
 ```
 
 ---

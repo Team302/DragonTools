@@ -1,0 +1,309 @@
+//====================================================================================================================================================
+// Copyright 2026 Lake Orion Robotics FIRST Team 302
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+// OR OTHER DEALINGS IN THE SOFTWARE.
+//====================================================================================================================================================
+
+#include "chassis/SwerveContainer.h"
+#include "auton/AllianceZoneManager.h"
+#include "auton/NeutralZoneManager.h"
+#include "chassis/ChassisConfigMgr.h"
+#include "chassis/commands/TeleopFieldDrive.h"
+#include "chassis/commands/TeleopRobotDrive.h"
+#include "state/RobotState.h"
+#include "utils/logging/debug/Logger.h"
+#include "wpi/commands2/Commands.hpp"
+#include "wpi/commands2/DeferredCommand.hpp"
+#include "wpi/commands2/ProxyCommand.hpp"
+#include "wpi/commands2/button/RobotModeTriggers.hpp"
+
+// Season Specific Commands
+#include "chassis/commands/season_specific_commands/AutoDefend.h"
+#include "chassis/commands/season_specific_commands/DriveAlongNearestWall.h"
+#include "chassis/commands/season_specific_commands/DriveOverBump.h"
+#include "chassis/commands/season_specific_commands/DriveToDepot.h"
+#include "chassis/commands/season_specific_commands/DriveToFuel.h"
+#include "chassis/commands/season_specific_commands/DriveToHub.h"
+#include "chassis/commands/season_specific_commands/DriveToOutpost.h"
+#include "chassis/commands/season_specific_commands/DriveToTower.h"
+#include "chassis/commands/season_specific_commands/DriveToTrench.h"
+#include "chassis/commands/season_specific_commands/SweepBehindHub.h"
+
+//------------------------------------------------------------------
+/// @brief      Static method to create or return the singleton instance
+//------------------------------------------------------------------
+SwerveContainer *SwerveContainer::m_instance = nullptr;
+SwerveContainer *SwerveContainer::GetInstance()
+{
+    if (SwerveContainer::m_instance == nullptr)
+    {
+        SwerveContainer::m_instance = new SwerveContainer();
+    }
+    return SwerveContainer::m_instance;
+}
+
+//------------------------------------------------------------------
+/// @brief      Constructor for SwerveContainer
+/// @details    Initializes the swerve chassis subsystem and creates all
+///             drive commands including field-oriented, robot-oriented,
+///             wpi::math::Trajectory following, and season-specific commands.
+///             Also configures button bindings if chassis is available.
+///             Registers for robot state change notifications to track
+///             climb mode status.
+//------------------------------------------------------------------
+SwerveContainer::SwerveContainer() : m_chassis(ChassisConfigMgr::GetInstance()->GetSwerveChassis()),
+                                     m_maxSpeed(ChassisConfigMgr::GetInstance()->GetMaxSpeed()),
+                                     m_fieldDrive(std::make_unique<TeleopFieldDrive>(m_chassis, TeleopControl::GetInstance(), m_maxSpeed, m_maxAngularRate)),
+                                     m_robotDrive(std::make_unique<TeleopRobotDrive>(m_chassis, TeleopControl::GetInstance(), m_maxSpeed, m_maxAngularRate)),
+                                     m_trajectoryDrive(std::make_unique<TrajectoryDrive>(m_chassis)),
+                                     m_driveOverBump(std::make_unique<DriveOverBump>(m_chassis)),
+                                     m_driveToDepot(std::make_unique<DriveToDepot>(m_chassis)),
+                                     m_driveToHub(std::make_unique<DriveToHub>(m_chassis)),
+                                     m_driveToOutpost(std::make_unique<DriveToOutpost>(m_chassis)),
+                                     m_driveToTower(std::make_unique<DriveToTower>(m_chassis)),
+                                     m_sweepBehindHub(std::make_unique<SweepBehindHub>(m_chassis)),
+                                     m_driveAlongNearestWall(std::make_unique<DriveAlongNearestWall>(m_chassis)),
+                                     m_driveToFuel(std::make_unique<DriveToFuel>(m_chassis)),
+                                     m_autoDefend(std::make_unique<AutoDefend>(m_chassis)),
+                                     m_driveToTrench(std::make_unique<DriveToTrench>(m_chassis))
+
+{
+    RobotState::GetInstance()->RegisterForStateChanges(this, RobotStateChanges::StateChange::ClimbModeStatus_Bool);
+
+    if (m_chassis != nullptr)
+    {
+        ConfigureBindings();
+    }
+}
+
+//------------------------------------------------------------------
+/// @brief      Configures button bindings for chassis control
+/// @details    Sets up command bindings for the teleop controller,
+///             creates standard drive commands, and registers telemetry.
+///             Also provides commented-out SysID binding setup for
+///             system identification routines.
+//------------------------------------------------------------------
+void SwerveContainer::ConfigureBindings()
+{
+    auto controller = TeleopControl::GetInstance();
+
+    CreateStandardDriveCommands(controller);
+#ifdef ENABLE_SYSID
+    ConfigureSysIDBindings(controller);
+#else
+    CreateRebuiltDriveToCommands(controller);
+#endif
+
+    m_chassis->RegisterTelemetry([this](auto const &state)
+                                 { Logger.Telemeterize(state); });
+
+    // When needed to do this, map the buttons accordingly and uncomment the lines below
+    // SetSysIDBinding(controller);
+}
+
+//------------------------------------------------------------------
+/// @brief      Creates and binds standard drive commands
+/// @param[in]  controller - Pointer to the teleop controller
+/// @details    Sets up field-oriented drive as default command,
+///             configures idle mode during disabled state,
+///             and binds reset yaw and robot-oriented drive triggers.
+//------------------------------------------------------------------
+void SwerveContainer::CreateStandardDriveCommands(TeleopControl *controller)
+{
+    auto isResetYawSelected = controller->GetCommandTrigger(TeleopControlFunctions::RESET_POSITION);
+    auto isRobotOriented = controller->GetCommandTrigger(TeleopControlFunctions::ROBOT_ORIENTED_DRIVE);
+
+    if (m_chassis != nullptr)
+    {
+        m_chassis->SetDefaultCommand(std::move(m_fieldDrive));
+
+        wpi::cmd::RobotModeTriggers::Disabled().WhileTrue(m_chassis->ApplyRequest([]
+                                                                                  { return swerve::requests::Idle{}; })
+                                                              .IgnoringDisable(true));
+
+        isResetYawSelected.OnTrue(m_chassis->RunOnce([this, controller]
+                                                     { m_chassis->SeedFieldCentric(); }));
+    }
+
+    isRobotOriented.WhileTrue(std::move(m_robotDrive));
+}
+
+//------------------------------------------------------------------
+/// @brief      Creates and binds rebuilt drive-to commands
+/// @param[in]  controller - Pointer to the teleop controller
+/// @details    Configures season-specific autonomous drive commands with
+///             deferred command proxies that check climb mode status.
+///             When not in climb mode, executes the appropriate drive-to
+///             command (DriveOverBump, DriveToDepot, DriveToHub, DriveToOutpost).
+///             When in climb mode, these commands are disabled and reserved
+///             for future climb-specific navigation (e.g., drive to tower).
+///             Each command is bound to a controller trigger using WhileTrue
+///             semantics, meaning they execute continuously while held.
+//------------------------------------------------------------------
+void SwerveContainer::CreateRebuiltDriveToCommands(TeleopControl *controller)
+{
+    auto driveOverBump = controller->GetCommandTrigger(TeleopControlFunctions::DRIVE_OVER_BUMP);
+    auto driveAlongNearestWall = controller->GetCommandTrigger(TeleopControlFunctions::DRIVE_ALONG_NEAREST_WALL);
+    auto driveToHub = controller->GetCommandTrigger(TeleopControlFunctions::DRIVE_TO_HUB);
+    auto driveToOutpost = controller->GetCommandTrigger(TeleopControlFunctions::DRIVE_TO_OUTPOST);
+    auto driveToTower = controller->GetCommandTrigger(TeleopControlFunctions::DRIVE_TO_TOWER);
+    auto driveToFuel = controller->GetCommandTrigger(TeleopControlFunctions::DRIVE_TO_FUEL);
+    auto autoDefend = controller->GetCommandTrigger(TeleopControlFunctions::AUTO_DEFEND);
+    // Sweep behind bump is on the same button as DriveToHub, so comment this out.
+    auto sweepBehindHub = controller->GetCommandTrigger(TeleopControlFunctions::SWEEP_BEHIND_HUB);
+
+    // Drive to trench is on the same button as DriveAlongNearestWall, so comment this out.
+    // leaving it here so it is easy if we change this mapping.
+    // auto driveToTrench = controller->GetCommandTrigger(TeleopControlFunctions::DRIVE_TO_TRENCH);
+
+    // Drive over Bump - Navigates over field obstacles/bumps
+    // Uses DeferredProxy to check climb mode status at execution time
+    driveOverBump.WhileTrue(wpi::cmd::DeferredProxy([this]() -> wpi::cmd::CommandPtr
+                                                    {
+        if (!m_climbModeStatus)
+        {
+            return wpi::cmd::ProxyCommand(m_driveOverBump.get()).ToPtr();
+        }
+        else
+        {
+            return wpi::cmd::None(); // TODO add drive to Tower for Climb mode
+        } }));
+
+    /*SystemCore TO DO: uncomment when choreo is added back as a dependency
+
+   // Drive Along Nearest Wall - Autonomous navigation along the nearest wall
+   // Disabled during climb mode in favor of future climb navigation
+   driveAlongNearestWall.WhileTrue(wpi::cmd::DeferredProxy([this]() -> wpi::cmd::CommandPtr
+                                                            {
+       if (!m_climbModeStatus && !NeutralZoneManager::GetInstance()->IsInNeutralZone())
+       {
+           return wpi::cmd::ProxyCommand(m_driveAlongNearestWall.get()).ToPtr();
+       }
+       else if (!m_climbModeStatus && NeutralZoneManager::GetInstance()->IsInNeutralZone())
+       {
+           return wpi::cmd::ProxyCommand(m_driveToTrench.get()).ToPtr();
+       }
+       else
+       {
+           return wpi::cmd::None(); // TODO add drive to Tower for Climb mode
+       } }));
+   */
+    // Drive To Hub - Autonomous navigation to hub scoring location
+    // Disabled during climb mode in favor of future climb navigation
+    driveToHub.WhileTrue(wpi::cmd::DeferredProxy([this]() -> wpi::cmd::CommandPtr
+                                                 {
+        if (!m_climbModeStatus)
+        {
+            return wpi::cmd::ProxyCommand(m_driveToHub.get()).ToPtr();
+        }
+        else
+        {
+            return wpi::cmd::None();
+        } }));
+
+    sweepBehindHub.WhileTrue(wpi::cmd::DeferredProxy([this]() -> wpi::cmd::CommandPtr
+                                                     {
+        if (!m_climbModeStatus)
+        {
+            return wpi::cmd::ProxyCommand(m_sweepBehindHub.get()).ToPtr();
+        }
+        else
+        {
+            return wpi::cmd::None();
+        } }));
+    // Drive To Outpost - Autonomous navigation to outpost location
+    // Disabled during climb mode in favor of future climb navigation
+    driveToOutpost.WhileTrue(wpi::cmd::DeferredProxy([this]() -> wpi::cmd::CommandPtr
+                                                     {
+        if (!m_climbModeStatus && AllianceZoneManager::GetInstance()->IsInAllianceZone())
+        {
+            return wpi::cmd::ProxyCommand(m_driveToOutpost.get()).ToPtr();
+        }
+        else if (!m_climbModeStatus && AllianceZoneManager::GetInstance()->IsInOtherAllianceZone())
+        {
+            return wpi::cmd::ProxyCommand(m_driveToTrench.get()).ToPtr();
+        }
+        else
+        {
+            return wpi::cmd::None();
+        } }));
+
+    // drive to fuel
+    driveToFuel.WhileTrue(wpi::cmd::DeferredProxy([this]() -> wpi::cmd::CommandPtr
+                                                  {
+    if (!m_climbModeStatus) {
+        return wpi::cmd::ProxyCommand(m_driveToFuel.get()).ToPtr();
+    } else {
+        return wpi::cmd::None();
+    } }));
+
+    // auto defend - drive to bumpers and defend against opponents
+    autoDefend.WhileTrue(wpi::cmd::DeferredProxy([this]() -> wpi::cmd::CommandPtr
+                                                 {
+    if (!m_climbModeStatus) {
+        return wpi::cmd::ProxyCommand(m_autoDefend.get()).ToPtr();
+    } else {
+        return wpi::cmd::None();
+    } }));
+
+    // drive To Tower
+    driveToTower.WhileTrue(wpi::cmd::DeferredProxy([this]() -> wpi::cmd::CommandPtr
+                                                   {
+        if (m_climbModeStatus)
+        {
+            return wpi::cmd::ProxyCommand(m_driveToTower.get()).ToPtr();
+        }
+        else
+        {
+            return wpi::cmd::None();
+        } }));
+}
+
+//------------------------------------------------------------------
+/// @brief      Configures button bindings for System Identification (SysID)
+/// @param[in]  controller - Pointer to the teleop controller
+/// @details    Binds SysID routines to controller buttons for characterization.
+///             Includes quasistatic and dynamic tests in both forward and
+///             reverse directions. Each routine should be run exactly once
+///             in a single log for proper characterization.
+//------------------------------------------------------------------
+void SwerveContainer::SetSysIDBinding(TeleopControl *controller)
+{
+    if (controller != nullptr)
+    {
+        // Run SysId routines when holding Select and A,X,Y,B.
+        // Note that each routine should be run exactly once in a single log
+        (controller->GetCommandTrigger(TeleopControlFunctions::SYSID_MODIFER) && controller->GetCommandTrigger(TeleopControlFunctions::SYSID_QUASISTATICFORWARD)).WhileTrue(m_chassis->SysIdQuasistatic(wpi::cmd::sysid::Direction::kForward)); // A
+        (controller->GetCommandTrigger(TeleopControlFunctions::SYSID_MODIFER) && controller->GetCommandTrigger(TeleopControlFunctions::SYSID_QUASISTATICREVERSE)).WhileTrue(m_chassis->SysIdQuasistatic(wpi::cmd::sysid::Direction::kReverse)); // B
+        (controller->GetCommandTrigger(TeleopControlFunctions::SYSID_MODIFER) && controller->GetCommandTrigger(TeleopControlFunctions::SYSID_DYNAMICFORWARD)).WhileTrue(m_chassis->SysIdDynamic(wpi::cmd::sysid::Direction::kForward));         // Y
+        (controller->GetCommandTrigger(TeleopControlFunctions::SYSID_MODIFER) && controller->GetCommandTrigger(TeleopControlFunctions::SYSID_DYNAMICREVERSE)).WhileTrue(m_chassis->SysIdDynamic(wpi::cmd::sysid::Direction::kReverse));         // X
+    }
+}
+
+//------------------------------------------------------------------
+/// @brief      Handles robot state change notifications
+/// @param[in]  change - The type of state change that occurred
+/// @param[in]  value - The new value associated with the state change
+/// @details    Implements IRobotStateChangeSubscriber interface.
+///             Monitors for ClimbModeStatus changes and updates the
+///             internal climb mode flag accordingly. This flag affects
+///             which drive commands are available - standard navigation
+///             commands are active when not climbing, while climb-specific
+///             navigation will be enabled during climb mode.
+//------------------------------------------------------------------
+void SwerveContainer::NotifyStateUpdate(RobotStateChanges::StateChange change, bool value)
+{
+    if (change == RobotStateChanges::StateChange::ClimbModeStatus_Bool)
+    {
+        m_climbModeStatus = value;
+    }
+}

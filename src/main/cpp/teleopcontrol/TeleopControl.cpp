@@ -1,0 +1,452 @@
+//====================================================================================================================================================
+// Copyright 2026 Lake Orion Robotics FIRST Team 302
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+// OR OTHER DEALINGS IN THE SOFTWARE.
+//====================================================================================================================================================
+
+// C++ Includes
+#include <memory>
+#include <string>
+#include <tuple>
+#include <utility>
+
+// FRC includes
+#include "wpi/commands2/button/CommandGamepad.hpp"
+#include "wpi/framework/RobotBase.hpp"
+
+// Team 302 includes
+#include "teleopcontrol/TeleopControl.h"
+#include "teleopcontrol/TeleopControlAxis.h"
+#include "teleopcontrol/TeleopControlButton.h"
+#include "teleopcontrol/TeleopControlFunctions.h"
+#include "teleopcontrol/TeleopControlMap.h"
+#include "utils/logging/debug/Logger.h"
+
+using std::make_pair;
+using std::pair;
+using std::string;
+using std::vector;
+
+//----------------------------------------------------------------------------------
+// Method:      GetInstance
+// Description: If there isn't an instance of this class, it will create one.  The
+//              single class instance will be returned.
+// Returns:     OperatorInterface*  instance of this class
+//----------------------------------------------------------------------------------
+TeleopControl *TeleopControl::m_instance = nullptr; // initialize the instance variable to nullptr
+TeleopControl *TeleopControl::GetInstance()
+{
+	if (TeleopControl::m_instance == nullptr)
+	{
+		TeleopControl::m_instance = new TeleopControl();
+	}
+	if (TeleopControl::m_instance != nullptr && !TeleopControl::m_instance->IsInitialized())
+	{
+		TeleopControl::m_instance->Initialize();
+	}
+	return TeleopControl::m_instance;
+}
+//----------------------------------------------------------------------------------
+// Method:      OperatorInterface <<constructor>>
+// Description: This will construct and initialize the object.
+//              It maps the functions to the buttons/axis.
+//---------------------------------------------------------------------------------
+TeleopControl::TeleopControl() : m_numControllers(0)
+
+{
+	Initialize();
+}
+
+bool TeleopControl::IsInitialized() const
+{
+	return m_numControllers > 0;
+}
+void TeleopControl::Initialize()
+{
+	InitializeControllers();
+}
+
+void TeleopControl::InitializeControllers()
+{
+	for (int inx = 0; inx < wpi::internal::DriverStationBackend::JOYSTICK_PORTS; ++inx)
+	{
+		InitializeController(inx);
+	}
+}
+
+void TeleopControl::InitializeController(int port)
+{
+	// Create a CommandXboxController for every joystick port up front.
+	//
+	// NOTE: We intentionally do NOT gate creation on DriverStation::GetJoystickIsXbox(port).
+	// When TeleopControl is first constructed the Driver Station usually has not reported
+	// joystick capabilities yet (and in simulation it may never), so GetJoystickIsXbox()
+	// returns false. Gating on it meant no controllers were created, leaving m_controller
+	// empty and causing the "controller is null" problems when buttons/axes are looked up.
+	//
+	// The WPILib HID classes are just lightweight handles to a Driver Station port;
+	// constructing one for a port with nothing connected is safe and simply reads 0/false
+	// until a device appears. Because InitializeControllers() iterates the ports in order,
+	// the controller for port N is stored at m_controller[N], which lines up with the
+	// TeleopControlMappingEnums::CONTROLLER values (DRIVER = 0, CO_PILOT = 1, ...).
+
+	m_controller.emplace_back(new wpi::cmd::CommandGamepad(port));
+	m_numControllers = m_controller.size();
+}
+
+vector<TeleopControlFunctions::FUNCTION> TeleopControl::GetAxisFunctionsOnController(int controller)
+{
+	vector<TeleopControlFunctions::FUNCTION> functions;
+	functions.reserve(teleopControlMapAxisMap.size());
+
+	for (const auto &[function, axisInfo] : teleopControlMapAxisMap)
+	{
+		if (axisInfo.controllerNumber == controller)
+		{
+			functions.emplace_back(function);
+		}
+	}
+	return functions;
+}
+
+vector<TeleopControlFunctions::FUNCTION> TeleopControl::GetButtonFunctionsOnController(int controller)
+{
+	vector<TeleopControlFunctions::FUNCTION> functions;
+	functions.reserve(teleopControlMapButtonMap.size());
+
+	for (const auto &[function, buttonInfo] : teleopControlMapButtonMap)
+	{
+		if (buttonInfo.controllerNumber == controller)
+		{
+			functions.emplace_back(function);
+		}
+	}
+	return functions;
+}
+
+pair<wpi::cmd::CommandGamepad *, TeleopControlMappingEnums::AXIS_IDENTIFIER> TeleopControl::GetAxisInfo(
+	TeleopControlFunctions::FUNCTION function // <I> - controller with this function
+)
+{
+	wpi::cmd::CommandGamepad *controller = nullptr;
+	TeleopControlMappingEnums::AXIS_IDENTIFIER axis = TeleopControlMappingEnums::AXIS_IDENTIFIER::UNDEFINED_AXIS;
+
+	if (!IsInitialized())
+	{
+		Initialize();
+	}
+
+	auto itr = teleopControlMapAxisMap.find(function);
+	if (itr != teleopControlMapAxisMap.end())
+	{
+		const auto &axisInfo = itr->second;
+		if (m_controller[axisInfo.controllerNumber] != nullptr)
+		{
+			controller = m_controller[axisInfo.controllerNumber];
+			axis = axisInfo.axisId;
+		}
+	}
+	return make_pair(controller, axis);
+}
+
+pair<wpi::cmd::CommandGamepad *, TeleopControlMappingEnums::BUTTON_IDENTIFIER> TeleopControl::GetButtonInfo(
+	TeleopControlFunctions::FUNCTION function // <I> - controller with this function
+)
+{
+	wpi::cmd::CommandGamepad *controller = nullptr;
+	TeleopControlMappingEnums::BUTTON_IDENTIFIER btn = TeleopControlMappingEnums::UNDEFINED_BUTTON;
+
+	if (!IsInitialized())
+	{
+		Initialize();
+	}
+
+	auto itr = teleopControlMapButtonMap.find(function);
+	if (itr != teleopControlMapButtonMap.end())
+	{
+		const auto &buttonInfo = itr->second;
+		if (m_controller[buttonInfo.controllerNumber] != nullptr)
+		{
+			controller = m_controller[buttonInfo.controllerNumber];
+			btn = buttonInfo.buttonId;
+		}
+	}
+	return make_pair(controller, btn);
+}
+/* System Core To Do: Look into how we want to do these with systemcore rework
+
+//------------------------------------------------------------------
+// Method:      SetAxisScaleFactor
+// Description: Allow the range of values to be set smaller than
+//              -1.0 to 1.0.  By providing a scale factor between 0.0
+//              and 1.0, the range can be made smaller.  If a value
+//              outside the range is provided, then the value will
+//              be set to the closest bounding value (e.g. 1.5 will
+//              become 1.0)
+// Returns:     void
+//------------------------------------------------------------------
+void TeleopControl::SetAxisScaleFactor(
+	TeleopControlFunctions::FUNCTION function, // <I> - function that will update an axis
+	double scaleFactor						   // <I> - scale factor used to limit the range
+)
+{
+	auto info = GetAxisInfo(function);
+	if (info.first != nullptr && info.second != TeleopControlMappingEnums::AXIS_IDENTIFIER::UNDEFINED_AXIS)
+	{
+		info.first->
+	}
+}
+
+void TeleopControl::SetDeadBand(
+	TeleopControlFunctions::FUNCTION function,
+	TeleopControlMappingEnums::AXIS_DEADBAND deadband)
+{
+	auto info = GetAxisInfo(function);
+	if (info.first != nullptr && info.second != TeleopControlMappingEnums::AXIS_IDENTIFIER::UNDEFINED_AXIS)
+	{
+		info.first-> (info.second, deadband);
+	}
+}
+
+//------------------------------------------------------------------
+// Method:      SetAxisProfile
+// Description: Sets the axis profile for the specifed axis
+// Returns:     void
+//------------------------------------------------------------------
+void TeleopControl::SetAxisProfile(
+	TeleopControlFunctions::FUNCTION function,		// <I> - function that will update an axis
+	TeleopControlMappingEnums::AXIS_PROFILE profile // <I> - profile to use
+)
+{
+	auto info = GetAxisInfo(function);
+	if (info.first != nullptr && info.second != TeleopControlMappingEnums::AXIS_IDENTIFIER::UNDEFINED_AXIS)
+	{
+		info.first->SetAxisProfile(info.second, profile);
+	}
+}
+*/
+
+//------------------------------------------------------------------
+// Method:      GetAxisValue
+// Description: Reads the joystick axis, removes any deadband (small
+//              value) and then scales as requested.
+// Returns:     double   -  scaled axis value
+//------------------------------------------------------------------
+double TeleopControl::GetAxisValue(TeleopControlFunctions::FUNCTION function) // <I> - function that whose axis will be read
+{
+	double value = 0.0;
+	auto [controller, axisID] = GetAxisInfo(function);
+
+	if (controller != nullptr && axisID != TeleopControlMappingEnums::AXIS_IDENTIFIER::UNDEFINED_AXIS)
+	{
+		if (axisID == TeleopControlMappingEnums::AXIS_IDENTIFIER::LEFT_JOYSTICK_X)
+			value = -1 * controller->GetLeftX();
+		else if (axisID == TeleopControlMappingEnums::AXIS_IDENTIFIER::LEFT_JOYSTICK_Y)
+			value = -1 * controller->GetLeftY();
+		else if (axisID == TeleopControlMappingEnums::AXIS_IDENTIFIER::RIGHT_JOYSTICK_X)
+			value = -1 * controller->GetRightX();
+		else if (axisID == TeleopControlMappingEnums::AXIS_IDENTIFIER::RIGHT_JOYSTICK_Y)
+			value = -1 * controller->GetRightY();
+		else if (axisID == TeleopControlMappingEnums::AXIS_IDENTIFIER::LEFT_TRIGGER)
+			value = controller->GetLeftTriggerAxis();
+		else if (axisID == TeleopControlMappingEnums::AXIS_IDENTIFIER::RIGHT_TRIGGER)
+			value = controller->GetRightTriggerAxis();
+	}
+	return value;
+}
+
+void TeleopControl::SetRumble(
+	TeleopControlFunctions::FUNCTION function, // <I> - controller with this function
+	bool leftRumble,						   // <I> - rumble left
+	bool rightRumble						   // <I> - rumble right
+)
+{
+	wpi::cmd::CommandGamepad *controller = nullptr;
+	std::tie(controller, std::ignore) = GetButtonInfo(function);
+
+	if (controller != nullptr)
+	{
+		if (leftRumble && rightRumble)
+		{
+			controller->SetRumble(wpi::GenericHID::RumbleType::LEFT_RUMBLE, 1);
+		}
+		else if (leftRumble)
+		{
+			controller->SetRumble(wpi::GenericHID::RumbleType::LEFT_RUMBLE, 1);
+			controller->SetRumble(wpi::GenericHID::RumbleType::RIGHT_RUMBLE, 0);
+		}
+		else if (rightRumble)
+		{
+			controller->SetRumble(wpi::GenericHID::RumbleType::RIGHT_RUMBLE, 1);
+			controller->SetRumble(wpi::GenericHID::RumbleType::LEFT_RUMBLE, 0);
+		}
+		else
+		{
+			controller->SetRumble(wpi::GenericHID::RumbleType::LEFT_RUMBLE, 0);
+		}
+	}
+	else
+	{
+		wpi::cmd::CommandGamepad *controller2 = nullptr;
+		std::tie(controller2, std::ignore) = GetAxisInfo(function);
+		if (controller2 != nullptr)
+		{
+			if (leftRumble && rightRumble)
+			{
+				controller2->SetRumble(wpi::GenericHID::RumbleType::LEFT_RUMBLE, 1);
+			}
+			else if (leftRumble)
+			{
+				controller2->SetRumble(wpi::GenericHID::RumbleType::LEFT_RUMBLE, 1);
+				controller2->SetRumble(wpi::GenericHID::RumbleType::RIGHT_RUMBLE, 0);
+			}
+			else if (rightRumble)
+			{
+				controller2->SetRumble(wpi::GenericHID::RumbleType::RIGHT_RUMBLE, 1);
+				controller2->SetRumble(wpi::GenericHID::RumbleType::LEFT_RUMBLE, 0);
+			}
+			else
+			{
+				controller2->SetRumble(wpi::GenericHID::RumbleType::LEFT_RUMBLE, 0);
+			}
+		}
+	}
+}
+
+void TeleopControl::SetRumble(
+	int controller,	 // <I> - controller to rumble
+	bool leftRumble, // <I> - rumble left
+	bool rightRumble // <I> - rumble right
+)
+{
+	if (m_controller[controller] != nullptr)
+	{
+		if (leftRumble && rightRumble)
+		{
+			m_controller[controller]->SetRumble(wpi::GenericHID::RumbleType::LEFT_RUMBLE, 1);
+		}
+		else if (leftRumble)
+		{
+			m_controller[controller]->SetRumble(wpi::GenericHID::RumbleType::LEFT_RUMBLE, 1);
+			m_controller[controller]->SetRumble(wpi::GenericHID::RumbleType::RIGHT_RUMBLE, 0);
+		}
+		else if (rightRumble)
+		{
+			m_controller[controller]->SetRumble(wpi::GenericHID::RumbleType::RIGHT_RUMBLE, 1);
+			m_controller[controller]->SetRumble(wpi::GenericHID::RumbleType::LEFT_RUMBLE, 0);
+		}
+		else
+		{
+			m_controller[controller]->SetRumble(wpi::GenericHID::RumbleType::LEFT_RUMBLE, 0);
+		}
+	}
+}
+
+void TeleopControl::LogInformation()
+{
+	for (int inx = 0; inx < m_numControllers; ++inx)
+	{
+		if (m_controller[inx] != nullptr)
+		{
+			auto functions = GetAxisFunctionsOnController(inx);
+			for (auto function : functions)
+			{
+				Logger::GetLogger()->LogData(LOGGER_LEVEL::PRINT, string("TeleopControl-axis"), std::to_string(function), GetAxisValue(function));
+			}
+
+			functions.clear();
+			functions = GetButtonFunctionsOnController(inx);
+			for (auto function : functions)
+			{
+				Logger::GetLogger()->LogData(LOGGER_LEVEL::PRINT, string("TeleopControl-button"), std::to_string(function), GetCommandTrigger(function).Get());
+			}
+		}
+	}
+}
+
+wpi::cmd::Trigger TeleopControl::GetCommandTrigger(TeleopControlFunctions::FUNCTION function)
+{
+
+	// Find the button mapping for the given function
+	auto itr = teleopControlMapButtonMap.find(function);
+	if (itr == teleopControlMapButtonMap.end())
+	{
+		Logger::GetLogger()->LogData(LOGGER_LEVEL::PRINT, string("TeleopControl-Command"), std::to_string(function), "Function not found in button map.");
+		return wpi::cmd::Trigger([]()
+								 { return false; });
+	}
+	auto info = GetButtonInfo(function);
+	wpi::cmd::CommandGamepad *controller = info.first;
+
+	auto buttonInfo = itr->second;
+	if (info.first != nullptr && info.second != TeleopControlMappingEnums::UNDEFINED_BUTTON)
+	{
+
+		// Map the button identifier to the corresponding CommandXboxController method
+		switch (buttonInfo.buttonId)
+		{
+		case TeleopControlMappingEnums::A_BUTTON:
+			return controller->SouthFace();
+		case TeleopControlMappingEnums::B_BUTTON:
+			return controller->EastFace();
+		case TeleopControlMappingEnums::X_BUTTON:
+			return controller->WestFace();
+		case TeleopControlMappingEnums::Y_BUTTON:
+			return controller->NorthFace();
+		case TeleopControlMappingEnums::LEFT_BUMPER:
+			return controller->LeftBumper();
+		case TeleopControlMappingEnums::RIGHT_BUMPER:
+			return controller->RightBumper();
+		case TeleopControlMappingEnums::SELECT_BUTTON:
+			return controller->Back(); // 'Select' is usually 'Back' in FRC
+		case TeleopControlMappingEnums::START_BUTTON:
+			return controller->Start();
+		case TeleopControlMappingEnums::LEFT_STICK_PRESSED:
+			return controller->LeftStick();
+		case TeleopControlMappingEnums::RIGHT_STICK_PRESSED:
+			return controller->RightStick();
+		case TeleopControlMappingEnums::LEFT_TRIGGER_PRESSED:
+			return controller->LeftTrigger();
+		case TeleopControlMappingEnums::RIGHT_TRIGGER_PRESSED:
+			return controller->RightTrigger();
+		case TeleopControlMappingEnums::POV_0:
+			return controller->DpadUp();
+		case TeleopControlMappingEnums::POV_90:
+			return controller->DpadRight();
+		case TeleopControlMappingEnums::POV_180:
+			return controller->DpadDown();
+		case TeleopControlMappingEnums::POV_270:
+			return controller->DpadLeft();
+
+		default:
+			Logger::GetLogger()->LogData(LOGGER_LEVEL::PRINT, string("TeleopControl-Command"), std::to_string(function), "Couldn't map the TeleopControlMapEnum");
+		}
+	}
+	else
+	{
+		Logger::GetLogger()->LogData(LOGGER_LEVEL::PRINT, string("TeleopControl-Command"), std::to_string(function), "Controller is null.");
+	}
+	return wpi::cmd::Trigger([]()
+							 { return false; }); // Return a trigger that is always inactive if the controller is null or the function is not mapped
+}
+
+wpi::cmd::Trigger TeleopControl::GetAxisAsTrigger(TeleopControlFunctions::FUNCTION function, double threshold)
+{
+	return wpi::cmd::Trigger([this, function, threshold]
+							 { return this->GetAxisValue(function) > threshold; });
+}
+
+bool TeleopControl::IsButtonPressed(TeleopControlFunctions::FUNCTION function)
+{
+	auto trigger = GetCommandTrigger(function);
+	return trigger.Get();
+}

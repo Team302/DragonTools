@@ -1,0 +1,115 @@
+//====================================================================================================================================================
+// Copyright 2026 Lake Orion Robotics FIRST Team 302
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+// OR OTHER DEALINGS IN THE SOFTWARE.
+//====================================================================================================================================================
+
+#include "fielddata/DepotHelper.h"
+#include "chassis/ChassisConfigMgr.h"
+#include "fielddata/FieldOffsetValues.h"
+#include "wpi/math/geometry/Pose2d.hpp"
+
+DepotHelper *DepotHelper::m_instance = nullptr;
+
+//------------------------------------------------------------------
+/// @brief      Get the singleton instance of DepotHelper
+/// @return     DepotHelper* - Pointer to the singleton instance
+//------------------------------------------------------------------
+DepotHelper *DepotHelper::GetInstance()
+{
+    if (DepotHelper::m_instance == nullptr)
+    {
+        DepotHelper::m_instance = new DepotHelper();
+    }
+    return DepotHelper::m_instance;
+}
+
+//------------------------------------------------------------------
+/// @brief      Constructor for DepotHelper
+/// @details    Initializes the chassis and field constants references
+///             Used by GetInstance() to create the singleton
+//------------------------------------------------------------------
+DepotHelper::DepotHelper() : m_chassis(ChassisConfigMgr::GetInstance()->GetSwerveChassis()),
+                             m_fieldConstants(FieldConstants::GetInstance())
+{
+}
+
+//------------------------------------------------------------------
+/// @brief      Determines which depot (red or blue) is nearest to the robot
+/// @return     bool - true if the red depot is nearest, false if blue depot is nearest
+/// @details    Uses PoseUtils::GetClosestFieldElement to determine which depot
+///             (red or blue) neutral side is nearest to the robot's current pose
+//------------------------------------------------------------------
+bool DepotHelper::IsNearestDepotRed() const
+{
+    if (m_chassis == nullptr || m_fieldConstants == nullptr)
+    {
+        return false;
+    }
+
+    auto currentPose = m_chassis->GetPose();
+    return IsNearestDepotRed(currentPose);
+}
+
+//------------------------------------------------------------------
+/// @brief      Determines which depot is nearest using a pre-fetched pose
+/// @param[in]  currentPose - The robot's current pose (avoids redundant GetPose() call)
+/// @return     bool - true if the red depot is nearest, false if blue depot is nearest
+/// @details    Uses cached m_fieldConstants for distance calculations instead of
+///             going through PoseUtils::GetClosestFieldElement() singleton lookup
+//------------------------------------------------------------------
+bool DepotHelper::IsNearestDepotRed(const wpi::math::Pose2d &currentPose) const
+{
+    if (m_fieldConstants == nullptr)
+    {
+        return false;
+    }
+
+    auto redPose = m_fieldConstants->GetFieldElementPose2d(FieldConstants::FIELD_ELEMENT::RED_DEPOT_NEUTRAL_SIDE);
+    auto bluePose = m_fieldConstants->GetFieldElementPose2d(FieldConstants::FIELD_ELEMENT::BLUE_DEPOT_NEUTRAL_SIDE);
+    auto distToRed = currentPose.Translation().Distance(redPose.Translation());
+    auto distToBlue = currentPose.Translation().Distance(bluePose.Translation());
+    return (distToRed < distToBlue);
+}
+
+//------------------------------------------------------------------
+/// @brief      Calculates the center pose of the nearest depot
+/// @return     wpi::math::Pose2d - The calculated center pose of the depot
+/// @details    Determines which depot (red or blue) is nearest, then
+///             calculates the center point by averaging the X and Y coordinates
+///             of the left, right, and neutral side poses. Uses the neutral
+///             side's rotation for the resulting pose orientation.
+//------------------------------------------------------------------
+wpi::math::Pose2d DepotHelper::CalcDepotPose() const
+{
+    if (m_chassis == nullptr || m_fieldConstants == nullptr)
+    {
+        return wpi::math::Pose2d();
+    }
+
+    // Fetch pose once and pass to IsNearestDepotRed to avoid duplicate GetPose() call
+    auto currentPose = m_chassis->GetPose();
+    auto isNearestDepotRed = IsNearestDepotRed(currentPose);
+    auto neutralPose = isNearestDepotRed ? m_fieldConstants->GetFieldElementPose2d(FieldConstants::FIELD_ELEMENT::RED_DEPOT_NEUTRAL_SIDE)
+                                         : m_fieldConstants->GetFieldElementPose2d(FieldConstants::FIELD_ELEMENT::BLUE_DEPOT_NEUTRAL_SIDE);
+
+    // Get the X position from the FieldOffsetValues based on nearest depot color
+    // neutralPose Y is center of the depot - no need to average with the side values
+    // rotation is based on the color
+    auto fieldOffsetValues = FieldOffsetValues::GetInstance();
+    if (fieldOffsetValues == nullptr)
+    {
+        // Fallback: use the neutralPose directly if FieldOffsetValues is unavailable
+        return neutralPose;
+    }
+    return wpi::math::Pose2d(fieldOffsetValues->GetValue(isNearestDepotRed, FIELD_OFFSET_ITEMS::DEPOT_X), neutralPose.Y(), isNearestDepotRed ? 0_deg : 180_deg);
+}

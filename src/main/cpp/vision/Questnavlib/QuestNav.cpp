@@ -1,0 +1,524 @@
+/*
+ * QUESTNAV
+ *   https://github.com/QuestNav
+ * Copyright (C) 2025 QuestNav
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the MIT License as published.
+ *
+ * C++ port for Team 302 usage.
+ */
+
+#include "vision/Questnavlib/QuestNav.h"
+
+#include <cmath>
+#include <cstring>
+#include <string>
+
+#include "utils/logging/debug/Logger.h"
+#include "wpi/driverstation/DriverStation.hpp"
+#include "wpi/math/geometry/Pose3d.hpp"
+#include "wpi/math/geometry/Rotation3d.hpp"
+#include "wpi/math/geometry/Translation3d.hpp"
+#include "wpi/nt/NetworkTableInstance.hpp"
+#include "wpi/system/Timer.hpp"
+#include "wpi/units/time.hpp"
+
+#ifdef __FRC_ROBORIO__
+#include "vision/Questnavlib/commands.pb.h"
+#include "vision/Questnavlib/data.pb.h"
+#include "vision/Questnavlib/geometry3d.pb.h"
+#endif
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Version – mirror the Java BuildConfig.APP_VERSION.
+// Update this string whenever you update the QuestNav vendordep.
+// ──────────────────────────────────────────────────────────────────────────────
+static constexpr const char *kLibVersion = "2026.2.2.0";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Constructor
+// ──────────────────────────────────────────────────────────────────────────────
+QuestNav::QuestNav()
+{
+    auto inst = wpi::nt::NetworkTableInstance::GetDefault();
+    m_questNavTable = inst.GetTable("QuestNav");
+
+    // PubSub options – match the Java library's configuration
+    wpi::nt::PubSubOptions frameOpts;
+    frameOpts.periodic = 0.01;
+    frameOpts.sendAll = true;
+    frameOpts.pollStorage = 20;
+
+    wpi::nt::PubSubOptions responseOpts;
+    responseOpts.periodic = 0.05;
+    responseOpts.sendAll = true;
+    responseOpts.pollStorage = 20;
+
+    // Subscribers
+    m_frameDataSubscriber = m_questNavTable->GetRawTopic("frameData")
+                                .Subscribe("proto:questnav.protos.data.ProtobufQuestNavFrameData", {}, frameOpts);
+
+    m_deviceDataSubscriber = m_questNavTable->GetRawTopic("deviceData")
+                                 .Subscribe("proto:questnav.protos.data.ProtobufQuestNavDeviceData", {});
+
+    m_responseSubscriber = m_questNavTable->GetRawTopic("response")
+                               .Subscribe("proto:questnav.protos.commands.ProtobufQuestNavCommandResponse", {}, responseOpts);
+
+    // Publisher
+    m_requestPublisher = m_questNavTable->GetRawTopic("request")
+                             .Publish("proto:questnav.protos.commands.ProtobufQuestNavCommand");
+
+    // Version subscriber
+    m_versionSubscriber = m_questNavTable->GetStringTopic("version").Subscribe("unknown");
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// SetPose – send a pose-reset command to the Quest headset
+// ──────────────────────────────────────────────────────────────────────────────
+void QuestNav::SetPose(const wpi::math::Pose3d &pose)
+{
+#ifdef __FRC_ROBORIO__
+    questnav::protos::commands::ProtobufQuestNavCommand command;
+    command.set_type(questnav::protos::commands::POSE_RESET);
+    command.set_command_id(++m_lastSentRequestId);
+
+    auto *payload = command.mutable_pose_reset_payload();
+    auto *targetPose = payload->mutable_target_pose();
+
+    Pose3dToProtobuf(pose, targetPose);
+
+    // Serialize and publish
+    std::string serialized;
+    command.SerializeToString(&serialized);
+    m_requestPublisher.Set(std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t *>(serialized.data()),
+        serialized.size()));
+#endif
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GetBatteryPercent
+// ──────────────────────────────────────────────────────────────────────────────
+std::optional<int> QuestNav::GetBatteryPercent()
+{
+#ifdef __FRC_ROBORIO__
+    auto rawData = m_deviceDataSubscriber.Get();
+    if (rawData.empty())
+    {
+        return std::nullopt;
+    }
+
+    questnav::protos::data::ProtobufQuestNavDeviceData deviceData;
+    if (!deviceData.ParseFromArray(rawData.data(), rawData.size()))
+    {
+        return std::nullopt;
+    }
+
+    return deviceData.battery_percent();
+#else
+    return std::nullopt;
+#endif
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GetFrameCount
+// ──────────────────────────────────────────────────────────────────────────────
+std::optional<int> QuestNav::GetFrameCount()
+{
+#ifdef __FRC_ROBORIO__
+    auto rawData = m_frameDataSubscriber.Get();
+    if (rawData.empty())
+    {
+        return std::nullopt;
+    }
+
+    questnav::protos::data::ProtobufQuestNavFrameData frameData;
+    if (!frameData.ParseFromArray(rawData.data(), rawData.size()))
+    {
+        return std::nullopt;
+    }
+
+    return frameData.frame_count();
+#else
+    return std::nullopt;
+#endif
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GetTrackingLostCounter
+// ──────────────────────────────────────────────────────────────────────────────
+std::optional<int> QuestNav::GetTrackingLostCounter()
+{
+#ifdef __FRC_ROBORIO__
+    auto rawData = m_deviceDataSubscriber.Get();
+    if (rawData.empty())
+    {
+        return std::nullopt;
+    }
+
+    questnav::protos::data::ProtobufQuestNavDeviceData deviceData;
+    if (!deviceData.ParseFromArray(rawData.data(), rawData.size()))
+    {
+        return std::nullopt;
+    }
+
+    return deviceData.tracking_lost_counter();
+#else
+    return std::nullopt;
+#endif
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// IsConnected – true when the last frame arrived within 120 ms
+// ──────────────────────────────────────────────────────────────────────────────
+bool QuestNav::IsConnected()
+{
+    // getLastChange() returns microseconds; Timer::GetMonotonicTimestamp() returns seconds
+    double nowSeconds = wpi::Timer::GetMonotonicTimestamp().value();
+    double lastChangeMicroseconds = static_cast<double>(m_frameDataSubscriber.GetLastChange());
+    double lastChangeSeconds = lastChangeMicroseconds / 1'000'000.0;
+    double staleness = nowSeconds - lastChangeSeconds;
+    return staleness < 0.120; // 120 ms threshold
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GetLatency
+// ──────────────────────────────────────────────────────────────────────────────
+double QuestNav::GetLatency()
+{
+    double nowSeconds = wpi::Timer::GetMonotonicTimestamp().value();
+    double lastChangeMicroseconds = static_cast<double>(m_frameDataSubscriber.GetLastChange());
+    double lastChangeSeconds = lastChangeMicroseconds / 1'000'000.0;
+    double stalenessMs = (nowSeconds - lastChangeSeconds) * 1000.0;
+    return stalenessMs;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GetAppTimestamp
+// ──────────────────────────────────────────────────────────────────────────────
+std::optional<double> QuestNav::GetAppTimestamp()
+{
+#ifdef __FRC_ROBORIO__
+    auto rawData = m_frameDataSubscriber.Get();
+    if (rawData.empty())
+    {
+        return std::nullopt;
+    }
+
+    questnav::protos::data::ProtobufQuestNavFrameData frameData;
+    if (!frameData.ParseFromArray(rawData.data(), rawData.size()))
+    {
+        return std::nullopt;
+    }
+
+    return frameData.timestamp();
+#else
+    return std::nullopt;
+#endif
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// IsTracking
+// ──────────────────────────────────────────────────────────────────────────────
+bool QuestNav::IsTracking()
+{
+#ifdef __FRC_ROBORIO__
+    if (!IsConnected())
+    {
+        return false;
+    }
+
+    auto rawData = m_frameDataSubscriber.Get();
+    if (rawData.empty())
+    {
+        return false;
+    }
+
+    questnav::protos::data::ProtobufQuestNavFrameData frameData;
+    if (!frameData.ParseFromArray(rawData.data(), rawData.size()))
+    {
+        return false;
+    }
+
+    return frameData.istracking();
+#else
+    return false;
+#endif
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GetAllUnreadPoseFrames
+// ──────────────────────────────────────────────────────────────────────────────
+std::vector<PoseFrame> QuestNav::GetAllUnreadPoseFrames()
+{
+    std::vector<PoseFrame> result;
+
+#ifdef __FRC_ROBORIO__
+    auto timestampedValues = m_frameDataSubscriber.ReadQueue();
+
+    result.reserve(timestampedValues.size());
+
+    for (auto &tv : timestampedValues)
+    {
+        questnav::protos::data::ProtobufQuestNavFrameData frameData;
+        if (!frameData.ParseFromArray(tv.value.data(), tv.value.size()))
+        {
+            continue; // Skip frames that fail to parse
+        }
+
+        PoseFrame frame;
+
+        // Convert protobuf pose to wpi::math::Pose3d
+        if (frameData.has_pose3d())
+        {
+            frame.questPose3d = ProtobufToPose3d(frameData.pose3d());
+        }
+
+        // serverTime is in microseconds – convert to seconds
+        frame.dataTimestamp = static_cast<double>(tv.serverTime) / 1'000'000.0;
+        frame.appTimestamp = frameData.timestamp();
+        frame.frameCount = frameData.frame_count();
+        frame.isTracking = frameData.istracking();
+
+        result.push_back(frame);
+    }
+#endif
+
+    return result;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CommandPeriodic – process command responses and log errors
+// ──────────────────────────────────────────────────────────────────────────────
+void QuestNav::CommandPeriodic()
+{
+    CheckVersionMatch();
+    CheckStateCallbacks();
+
+#ifdef __FRC_ROBORIO__
+    auto responses = m_responseSubscriber.ReadQueue();
+
+    for (auto &tv : responses)
+    {
+        questnav::protos::commands::ProtobufQuestNavCommandResponse response;
+        if (!response.ParseFromArray(tv.value.data(), tv.value.size()))
+        {
+            continue; // Skip unparseable responses
+        }
+
+        if (response.success())
+        {
+            if (m_onSuccessCallback)
+            {
+                m_onSuccessCallback(response);
+            }
+        }
+        else
+        {
+            std::string msg = "QuestNav command failed!\n" + response.error_message();
+            Logger::GetLogger()->LogData(LOGGER_LEVEL::ERROR, "QuestNav", "questnavCommandFailed", msg);
+            if (m_onFailureCallback)
+            {
+                m_onFailureCallback(response);
+            }
+        }
+    }
+#endif
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GetLibVersion
+// ──────────────────────────────────────────────────────────────────────────────
+std::string QuestNav::GetLibVersion() const
+{
+    return kLibVersion;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GetQuestNavVersion
+// ──────────────────────────────────────────────────────────────────────────────
+std::string QuestNav::GetQuestNavVersion()
+{
+    return m_versionSubscriber.Get();
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// SetVersionCheckEnabled
+// ──────────────────────────────────────────────────────────────────────────────
+void QuestNav::SetVersionCheckEnabled(bool enabled)
+{
+    m_versionCheckEnabled = enabled;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CheckVersionMatch (private)
+// ──────────────────────────────────────────────────────────────────────────────
+void QuestNav::CheckVersionMatch()
+{
+    if (!m_versionCheckEnabled || !IsConnected())
+    {
+        return;
+    }
+
+    double currentTime = wpi::Timer::GetMonotonicTimestamp().value();
+    if ((currentTime - m_lastVersionCheckTime) < kVersionCheckIntervalSeconds)
+    {
+        return;
+    }
+    m_lastVersionCheckTime = currentTime;
+
+    auto libVersion = GetLibVersion();
+    auto questNavVersion = GetQuestNavVersion();
+
+    if (questNavVersion != libVersion)
+    {
+        static const std::string msg = std::string("WARNING FROM QUESTNAV: QuestNavLib version (") + libVersion + ") on your robot does not match QuestNav app version (" + questNavVersion + ") on your headset. This may cause compatibility issues. Check the version of your vendordep and the app running on your headset.";
+        Logger::GetLogger()->LogData(LOGGER_LEVEL::ERROR, "QuestNav", "questnavLibVersionMismatch", msg);
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CheckStateCallbacks (private)
+// ──────────────────────────────────────────────────────────────────────────────
+void QuestNav::CheckStateCallbacks()
+{
+    // --- Connection state ---
+    bool connected = IsConnected();
+    if (connected != m_lastConnectedState)
+    {
+        if (connected)
+        {
+            if (m_onConnectedCallback)
+                m_onConnectedCallback();
+        }
+        else
+        {
+            if (m_onDisconnectedCallback)
+                m_onDisconnectedCallback();
+        }
+        m_lastConnectedState = connected;
+    }
+
+    // --- Tracking state ---
+    bool tracking = IsTracking();
+    if (tracking != m_lastTrackingState)
+    {
+        if (tracking)
+        {
+            if (m_onTrackingAcquiredCallback)
+                m_onTrackingAcquiredCallback();
+        }
+        else
+        {
+            if (m_onTrackingLostCallback)
+                m_onTrackingLostCallback();
+        }
+        m_lastTrackingState = tracking;
+    }
+
+    // --- Low battery ---
+    if (m_onLowBatteryCallback)
+    {
+        auto levelOpt = GetBatteryPercent();
+        if (levelOpt.has_value())
+        {
+            int level = levelOpt.value();
+            if (level <= m_lowBatteryThreshold && !m_lowBatteryFired)
+            {
+                m_onLowBatteryCallback(level);
+                m_lowBatteryFired = true;
+            }
+            else if (level > m_lowBatteryThreshold)
+            {
+                // Reset so the callback can fire again if battery dips below again
+                m_lowBatteryFired = false;
+            }
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Callbacks
+// ──────────────────────────────────────────────────────────────────────────────
+void QuestNav::OnConnected(std::function<void()> callback)
+{
+    m_onConnectedCallback = callback;
+}
+void QuestNav::OnDisconnected(std::function<void()> callback)
+{
+    m_onDisconnectedCallback = callback;
+}
+void QuestNav::OnTrackingAcquired(std::function<void()> callback)
+{
+    m_onTrackingAcquiredCallback = callback;
+}
+void QuestNav::OnTrackingLost(std::function<void()> callback)
+{
+    m_onTrackingLostCallback = callback;
+}
+void QuestNav::OnLowBattery(int thresholdPercent, std::function<void(int)> callback)
+{
+    m_lowBatteryThreshold = std::clamp(thresholdPercent, 0, 100);
+    m_onLowBatteryCallback = callback;
+}
+#ifdef __FRC_ROBORIO__
+void QuestNav::OnCommandSuccess(std::function<void(const questnav::protos::commands::ProtobufQuestNavCommandResponse &)> callback)
+{
+    m_onSuccessCallback = callback;
+}
+void QuestNav::OnCommandFailure(std::function<void(const questnav::protos::commands::ProtobufQuestNavCommandResponse &)> callback)
+{
+    m_onFailureCallback = callback;
+}
+#endif
+
+#ifdef __FRC_ROBORIO__
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ProtobufToPose3d – helper to unpack a wpi::proto::ProtobufPose3d
+// ──────────────────────────────────────────────────────────────────────────────
+wpi::math::Pose3d QuestNav::ProtobufToPose3d(const wpi::proto::ProtobufPose3d &proto)
+{
+    double tx = 0.0, ty = 0.0, tz = 0.0;
+    if (proto.has_translation())
+    {
+        tx = proto.translation().x();
+        ty = proto.translation().y();
+        tz = proto.translation().z();
+    }
+
+    double qw = 1.0, qx = 0.0, qy = 0.0, qz = 0.0;
+    if (proto.has_rotation() && proto.rotation().has_q())
+    {
+        qw = proto.rotation().q().w();
+        qx = proto.rotation().q().x();
+        qy = proto.rotation().q().y();
+        qz = proto.rotation().q().z();
+    }
+
+    return wpi::math::Pose3d{
+        wpi::math::Translation3d{wpi::units::meter_t{tx}, wpi::units::meter_t{ty}, wpi::units::meter_t{tz}},
+        wpi::math::Rotation3d{wpi::math::Quaternion{qw, qx, qy, qz}}};
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Pose3dToProtobuf – helper to pack an wpi::math::Pose3d into a wpi::proto::ProtobufPose3d
+// ──────────────────────────────────────────────────────────────────────────────
+void QuestNav::Pose3dToProtobuf(const wpi::math::Pose3d &pose, wpi::proto::ProtobufPose3d *proto)
+{
+
+    auto *translation = proto->mutable_translation();
+    translation->set_x(pose.X().value());
+    translation->set_y(pose.Y().value());
+    translation->set_z(pose.Z().value());
+
+    auto *rotation = proto->mutable_rotation();
+    auto *quaternion = rotation->mutable_q();
+    auto q = pose.Rotation().GetQuaternion();
+    wpi::math::Quaternion->set_w(q.W());
+    wpi::math::Quaternion->set_x(q.X());
+    wpi::math::Quaternion->set_y(q.Y());
+    wpi::math::Quaternion->set_z(q.Z());
+}
+#endif

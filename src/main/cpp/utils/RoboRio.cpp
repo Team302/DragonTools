@@ -1,0 +1,74 @@
+//====================================================================================================================================================
+// Copyright 2026 Lake Orion Robotics FIRST Team 302
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+// OR OTHER DEALINGS IN THE SOFTWARE.
+//====================================================================================================================================================
+
+#include "utils/RoboRio.h"
+#include "wpi/system/RobotController.hpp"
+#include "wpi/units/voltage.hpp"
+
+RoboRio *RoboRio::m_instance = nullptr;
+RoboRio *RoboRio::GetInstance()
+{
+    if (RoboRio::m_instance == nullptr)
+    {
+        RoboRio::m_instance = new RoboRio();
+    }
+    return RoboRio::m_instance;
+}
+
+/* SystemCore TO DO: Figure out how logging works in SystemCore
+
+void RoboRio::DataLog(uint64_t timestamp)
+{
+    LogDoubleData(timestamp, "/RoboRio/BatteryVoltage", wpi::RobotController::GetBatteryVoltage().value(), "Volts");
+    LogDoubleData(timestamp, "/RoboRio/InputVoltage", wpi::RobotController::GetInputVoltage(), "Volts");
+    LogDoubleData(timestamp, "/RoboRio/InputCurrent", wpi::RobotController::GetInputCurrent(), "Amps");
+    LogDoubleData(timestamp, "/RoboRio/CPUTemp", wpi::RobotController::GetCPUTemp().value(), "Degrees C");
+
+    LogBoolData(timestamp, "/RoboRio/IsBrownOut", wpi::RobotController::IsBrownedOut());
+
+
+    auto commsDisabledCount = wpi::RobotController::GetCommsDisableCount();
+    auto isRSLOn = wpi::RobotController::GetRSLState();
+
+
+    auto radioLEDColor = wpi::RobotController::GetRadioLEDState();
+    auto radioLEDStatus = radioLEDColor == wpi::RadioLEDState::kOff ? std::string("Off") : radioLEDColor == wpi::RadioLEDState::kGreen ? std::string("ON")
+                                                                                       : radioLEDColor == wpi::RadioLEDState::RED     ? std::string("RED")
+                                                                                                                                       : std::string("ORANGE");
+
+    auto canStatus = wpi::RobotController::GetCANStatus();
+    auto rioCANBusUtil = canStatus::percentBusUtilization;
+    auto rioCANBusOffCount = canStatus::busOffCount;
+    auto rioCANBusTxFullCount = canStatus::txFullCount;
+    auto rioCANReceiveErrors = canStatus::receiveErrorCount;
+    auto rioCANTransmitErrors = canStatus::transmitErrorCount;
+
+    auto isRail33VEnabled = wpi::RobotController::GetEnabled3V3();
+    auto rail33VVoltage = wpi::RobotController::GetVoltage3V3();
+    auto rail33VCurrent = wpi::RobotController::GetCurrent3V3();
+    auto rail33VFaultCount = wpi::RobotController::GetFaultCount3V3();
+
+    auto isRail5VEnabled = wpi::RobotController::GetEnabled5V();
+    auto rail5VVoltage = wpi::RobotController::GetVoltage5V();
+    auto rail5VCurrent = wpi::RobotController::GetCurrent5V();
+    auto rail5VFaultCount = wpi::RobotController::GetFaultCount5V();
+
+    auto isRail6VEnabled = wpi::RobotController::GetEnabled6V();
+    auto rail6VVoltage = wpi::RobotController::GetVoltaged6V();
+    auto rail6VCurrent = wpi::RobotController::GetCurrent6V();
+    auto rail6VFaultCount = wpi::RobotController::GetFaultCount6V();
+
+}
+*/

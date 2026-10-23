@@ -1,0 +1,67 @@
+//====================================================================================================================================================
+// Copyright 2026 Lake Orion Robotics FIRST Team 302
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+// OR OTHER DEALINGS IN THE SOFTWARE.
+//====================================================================================================================================================
+
+#pragma once
+#include <array>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "utils/logging/signals/DragonDataLogger.h"
+#include "utils/logging/signals/ISignalLogger.h"
+#include "wpi/system/Timer.hpp"
+
+enum class LoggerType
+{
+    CTRE_SIGNAL_LOGGER,
+    UDP_LOGGER,
+    WPILOGGER
+};
+
+class DragonDataLoggerMgr
+{
+public:
+    static DragonDataLoggerMgr *GetInstance();
+
+    DragonDataLoggerMgr(const DragonDataLoggerMgr &) = delete;
+    DragonDataLoggerMgr &operator=(const DragonDataLoggerMgr &) = delete;
+
+    void SetLoggerType(LoggerType type);
+    ISignalLogger *GetLogger() const { return m_logger.get(); }
+
+    void RegisterItem(DragonDataLogger *item);
+    void PeriodicDataLogInit();
+    void PeriodicDataLog();
+
+    std::string GetLoggingDirectory() const;
+
+    LoggerType GetLoggerType() const { return m_loggerType; }
+
+private:
+    DragonDataLoggerMgr();
+    ~DragonDataLoggerMgr();
+
+    std::vector<DragonDataLogger *> m_items;
+    wpi::Timer m_timer;
+    unsigned int m_lastIndex = 0;
+
+    const wpi::units::time::second_t m_period{0.00075};
+    const LoggerType m_loggerType{LoggerType::CTRE_SIGNAL_LOGGER};
+    const std::string m_piLoggerAddress{"pi-logger.local"};
+    const int m_piLoggerPort{5900};
+
+    static DragonDataLoggerMgr *m_instance;
+    std::unique_ptr<ISignalLogger> m_logger;
+};
