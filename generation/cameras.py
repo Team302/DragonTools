@@ -182,7 +182,7 @@ def configured_robots(project_data):
             cameras.append(rendered)
         robots.append({
             "robot_id": robot_id.upper(),
-            "class_name": f"CameraConfig_{robot_id.upper()}",
+            "class_name": f"CameraConfig_{team}",
             "cameras": cameras,
         })
     return robots

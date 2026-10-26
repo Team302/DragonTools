@@ -99,7 +99,7 @@ cannot leave stale robot references.
 
 `DragonCodeGenerator.generate_camera_configs()` renders the `CameraConfig*`
 templates; the full `generate()` also invokes it. Configured robots get a
-`CameraConfig_<ROBOT_ID>` class and a shared `CameraConfigMgr` mapping.
+`CameraConfig_<TEAM_NUMBER>` class and a shared `CameraConfigMgr` mapping.
 The templates reuse the shared `short_unit` filter to emit `_in` / `_m` and
 `_deg` / `_rad` literals matching each field's selected unit (`field_unit()`).
 Canonical stored

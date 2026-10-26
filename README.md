@@ -135,7 +135,7 @@ unsupported options, invalid values and ambiguous team numbers.
 Camera files are written under
 `output_code/src/main/cpp/vision/definitions/`:
 
-- `CameraConfig_<ROBOT_ID>.h` / `.cpp` for each configured robot.
+- `CameraConfig_<TEAM_NUMBER>.h` / `.cpp` for each configured robot.
 - `CameraConfigMgr.h` / `.cpp` mapping those robots' `RobotIdentifier` entries
   to their configurations. **This replaces the robot project's existing camera
   manager mappings**; only robots configured in this project are mapped. There
