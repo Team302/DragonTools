@@ -111,7 +111,7 @@ class CameraGenerationTests(unittest.TestCase):
         limelight = new_camera("Limelight", [])
         limelight.update(x=-10.7354, y=-10.3104, z=9.39, pitch=5, yaw=-150, roll=12)
         quest = new_camera("Quest", [])
-        quest.update(x=-11.216, y=-10.362, z=16.762, yaw=180)
+        quest.update(x=-11.216, y=-10.362, z=16.762, pitch=7, yaw=180)
         config["cameras"] = [limelight, quest]
         self.model.project_data["robots"]["COMP_BOT_302"]["camera_config"] = config
         self.temp = tempfile.TemporaryDirectory()
@@ -122,12 +122,14 @@ class CameraGenerationTests(unittest.TestCase):
         written = self.generator.generate_camera_configs(self.model.project_data)
         self.assertEqual(len(written), 4)
         source = Path(written[1]).read_text()
-        for field in ("-10.7354", "-10.3104", "9.39"):
-            self.assertIn(f"{field}_in", source)
-        self.assertIn("5.0_deg,\n        -150.0_deg,\n        12.0_deg", source)
+        self.assertIn("-0.2727_m, // LL Forward (-10.7354 in)", source)
+        self.assertIn("0.2619_m, // LL Right (10.3104 in)", source)
+        self.assertIn("0.2385_m, // LL Up (9.39 in)", source)
+        self.assertIn("-5.0_deg,\n        -150.0_deg,\n        12.0_deg", source)
         self.assertIn("-11.216_in", source)
         self.assertIn("-10.362_in", source)
         self.assertIn("16.762_in", source)
+        self.assertIn("7.0_deg,\n        180.0_deg", source)
         self.assertNotIn("wpi::units::", source)
         self.assertIn('std::make_unique<DragonLimelight>(\n        "limelight-1"', source)
         self.assertIn("vision->AddLimelight", source)
@@ -136,18 +138,29 @@ class CameraGenerationTests(unittest.TestCase):
         self.assertIn("case RobotIdentifier::COMP_BOT_302:", manager)
         self.assertIn("new CameraConfig_COMP_BOT_302()", manager)
 
+    def test_pitch_sign_is_flipped_only_for_limelight(self):
+        source = Path(self.generator.generate_camera_configs(self.model.project_data)[1]).read_text()
+        self.assertIn("-5.0_deg, // LL Pitch", source)
+        self.assertIn("7.0_deg, // <I> - Pitch of Quest", source)
+
+    def test_y_offset_is_flipped_only_for_limelight(self):
+        source = Path(self.generator.generate_camera_configs(self.model.project_data)[1]).read_text()
+        self.assertIn("0.2619_m, // LL Right (10.3104 in)", source)
+        self.assertIn("-10.362_in,  // <I> y offset of Quest", source)
+
     def test_generated_literals_follow_selected_units_without_mutating_project(self):
         config = self.model.project_data["robots"]["COMP_BOT_302"]["camera_config"]
-        config["length_unit"] = "m"
+        config["length_unit"] = "in"
         config["angle_unit"] = "rad"
         before = copy.deepcopy(self.model.project_data)
         written = self.generator.generate_camera_configs(self.model.project_data)
         source = Path(written[1]).read_text()
-        self.assertIn("-0.2727_m", source)
-        self.assertIn("-0.2849_m", source)
+        self.assertIn("-0.2727_m, // LL Forward (-10.7354 in)", source)
+        self.assertIn("0.2619_m, // LL Right (10.3104 in)", source)
+        self.assertIn("0.2385_m, // LL Up (9.39 in)", source)
+        self.assertIn("-11.216_in", source)
         self.assertIn("-2.618_rad", source)
         self.assertIn("3.1416_rad", source)
-        self.assertNotIn("_in,", source)
         self.assertNotIn("_deg,", source)
         self.assertNotIn("wpi::units::", source)
         self.assertEqual(self.model.project_data, before)
@@ -156,8 +169,12 @@ class CameraGenerationTests(unittest.TestCase):
         limelight = self.model.project_data["robots"]["COMP_BOT_302"]["camera_config"]["cameras"][0]
         limelight["units"] = {"x": "m", "z": "in", "yaw": "rad"}
         source = Path(self.generator.generate_camera_configs(self.model.project_data)[1]).read_text()
-        self.assertIn("-0.2727_m,\n        -10.3104_in,\n        9.39_in,", source)
-        self.assertIn("5.0_deg,\n        -2.618_rad,\n        12.0_deg,", source)
+        self.assertIn("-0.2727_m, // LL Forward (-10.7354 in)", source)
+        self.assertIn("0.2619_m, // LL Right (10.3104 in)", source)
+        self.assertIn("0.2385_m, // LL Up (9.39 in)", source)
+        self.assertIn("-5.0_deg, // LL Pitch", source)
+        self.assertIn("-2.618_rad, // LL Yaw", source)
+        self.assertIn("12.0_deg, // LL Roll", source)
         self.assertIn("-11.216_in", source)
 
     def test_invalid_field_units_are_rejected(self):

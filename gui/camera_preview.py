@@ -124,7 +124,8 @@ class CameraPreview(QWidget):
             outline = "#ffe175" if index == self.selected else color
 
             def transform(point):
-                rotated = rotate_point(point, camera["roll"], camera["pitch"], camera["yaw"])
+                pitch = -camera["pitch"] if camera["type"] == "Limelight" else camera["pitch"]
+                rotated = rotate_point(point, camera["roll"], pitch, camera["yaw"])
                 return tuple(a + b for a, b in zip(origin, rotated))
 
             box(

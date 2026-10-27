@@ -175,10 +175,18 @@ def configured_robots(project_data):
         for camera in config["cameras"]:
             rendered = dict(camera)
             rendered["units"] = {}
+            if camera["type"] == "Limelight":
+                rendered["inch_offsets"] = {}
             for field in POSE_FIELDS:
-                unit = field_unit(config, field, camera)
-                rendered[field] = round(camera[field] * UNIT_FACTORS[unit], DECIMAL_PLACES)
-                rendered["units"][field] = UNIT_LITERAL_KEYS[unit]
+                if camera["type"] == "Limelight" and field in ("x", "y", "z"):
+                    inches = -camera[field] if field == "y" else camera[field]
+                    rendered[field] = round(inches * INCH_TO_METER, DECIMAL_PLACES)
+                    rendered["units"][field] = UNIT_LITERAL_KEYS["m"]
+                    rendered["inch_offsets"][field] = round(inches, DECIMAL_PLACES)
+                else:
+                    unit = field_unit(config, field, camera)
+                    rendered[field] = round(camera[field] * UNIT_FACTORS[unit], DECIMAL_PLACES)
+                    rendered["units"][field] = UNIT_LITERAL_KEYS[unit]
             cameras.append(rendered)
         robots.append({
             "robot_id": robot_id.upper(),

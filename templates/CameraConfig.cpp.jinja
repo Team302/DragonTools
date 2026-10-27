@@ -38,13 +38,13 @@ void {{ class_name }}::BuildCameraConfig()
         DRAGON_LIMELIGHT_CAMERA_IDENTIFIER::{{ camera.identifier }},
         DRAGON_LIMELIGHT_CAMERA_TYPE::{{ camera.camera_type }}, 
         DRAGON_LIMELIGHT_CAMERA_USAGE::{{ camera.usage }},
-        {{ camera.x | float }}{{ camera.units.x | short_unit }}, // wpi::units::length::inch_t mountingXOffset, /// <I> x offset of cam from robot center (forward relative to robot)
-        {{ camera.y | float }}{{ camera.units.y | short_unit }}, // wpi::units::length::inch_t mountingYOffset, /// <I> y offset of cam from robot center (left relative to robot)
-        {{ camera.z | float }}{{ camera.units.z | short_unit }}, // wpi::units::length::inch_t mountingZOffset, /// <I> z offset of cam from robot center (up relative to robot)
-        {{ camera.pitch | float }}{{ camera.units.pitch | short_unit }}, // wpi::units::angle::degree_t pitch,  /// <I> - Pitch of Camera
-        {{ camera.yaw | float }}{{ camera.units.yaw | short_unit }}, // wpi::units::angle::degree_t yaw,        /// <I> - Yaw of Camera
-        {{ camera.roll | float }}{{ camera.units.roll | short_unit }}, // wpi::units::angle::degree_t roll,     /// <I> - Roll of Camera
-        DRAGON_LIMELIGHT_PIPELINE::{{ camera.pipeline }}, /// <I> enum for starting pipeline
+        {{ camera.x | float }}{{ camera.units.x | short_unit }}, // LL Forward ({{ camera.inch_offsets.x | float }} in)  /// <I> x offset of cam from robot center (forward relative to robot)
+        {{ camera.y | float }}{{ camera.units.y | short_unit }}, // LL Right ({{ camera.inch_offsets.y | float }} in) /// <I> y offset of cam from robot center (right relative to robot)
+        {{ camera.z | float }}{{ camera.units.z | short_unit }}, // LL Up ({{ camera.inch_offsets.z | float }} in) /// <I> z offset of cam from robot center (up relative to robot)
+        {{ (camera.pitch) | float }}{{ camera.units.pitch | short_unit }}, // LL Pitch,  /// <I> - Pitch of Camera
+        {{ camera.yaw | float }}{{ camera.units.yaw | short_unit }}, // LL Yaw,        /// <I> - Yaw of Camera
+        {{ camera.roll | float }}{{ camera.units.roll | short_unit }}, // LL Roll,     /// <I> - Roll of Camera
+        DRAGON_LIMELIGHT_PIPELINE::{{ camera.pipeline }}, /// <I> enum for starting pipeline 
         DRAGON_LIMELIGHT_LED_MODE::{{ camera.led_mode }}); // DRAGON_LIMELIGHT_LED_MODE ledMode,
     vision->AddLimelight(std::move( {{ camera.name | camel }}), DRAGON_LIMELIGHT_CAMERA_USAGE::{{ camera.usage }});
 {% else %}

@@ -97,7 +97,7 @@ class CameraCreatorWidget(QWidget):
         controls_layout.addWidget(self.camera_box)
         convention = QLabel(
             "Robot space: +X forward, +Y left, +Z up.\n"
-            "Positive yaw turns left; positive pitch tilts down.\n"
+            "Positive yaw turns left. Positive pitch tilts up for Limelight and down for Quest.\n"
             "Roll rotates about the camera's forward axis.\n"
             "If a Limelight UI labels an offset Right, use -Y."
         )
