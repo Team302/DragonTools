@@ -18,6 +18,7 @@ from . import naming as nm
 from .hardware import HardwareBuilder
 from .control_data import ControlDataBuilder
 from .states import StateBuilder
+from .cameras import configured_robots
 
 # Project root (the folder that contains the `generation` package). Used to
 # resolve the bundled templates regardless of the current working directory.
@@ -50,6 +51,7 @@ class DragonCodeGenerator():
             os.makedirs(self.output_dir)
 
     def generate(self, project_data):
+        configured_robots(project_data)
         global_mechanisms = self._collect_mechanisms(project_data)
         current_year = datetime.datetime.now().year
 
@@ -142,6 +144,31 @@ class DragonCodeGenerator():
 
             # Render the per-team control-data XML into the deploy tree.
             self._render_xml(mech_name, project_data)
+
+        self.generate_camera_configs(project_data)
+
+    def generate_camera_configs(self, project_data):
+        robots = configured_robots(project_data)
+        if not robots:
+            return []
+        directory = os.path.join(self.output_dir, "src", "main", "cpp", "vision", "definitions")
+        os.makedirs(directory, exist_ok=True)
+        common = {"year": datetime.datetime.now().year, "version": self.version}
+        written = []
+        for robot in robots:
+            for extension in ("h", "cpp"):
+                path = os.path.join(directory, f"{robot['class_name']}.{extension}")
+                self._render_and_write(
+                    f"CameraConfig.{extension}.jinja", {**common, **robot}, path
+                )
+                written.append(path)
+
+            path = os.path.join(directory, f"CameraConfigMgr.cpp")
+            self._render_and_write(
+                f"CameraConfigMgr.cpp.jinja", {**common, "robots": robots}, path
+            )
+            written.append(path)
+        return written
 
     # --- Data assembly -------------------------------------------------------
 

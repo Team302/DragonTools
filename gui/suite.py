@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 
 from .mechanism_builder import MechanismEditorWindow
 from .auton_builder import AutonBuilderWidget
+from .camera_creator import CameraCreatorWidget
 from .constants import VERSION
 
 
@@ -42,6 +43,8 @@ class DragonSuiteWindow(QMainWindow):
         # --- Tab 2: Auton Builder ---
         self.auton_builder = AutonBuilderWidget(self.mechanism_generator.model)
         self.tabs.addTab(self.auton_builder, "Auton Builder")
+        self.camera_creator = CameraCreatorWidget(self.mechanism_generator.model)
+        self.tabs.addTab(self.camera_creator, "Camera Creator")
         self._setup_suite_menu()
 
         # Restore the tab the user was last on, then persist future changes.
@@ -89,6 +92,7 @@ class DragonSuiteWindow(QMainWindow):
 
     def _new_project(self):
         self.mechanism_generator.new_project()
+        self.camera_creator.refresh_robots()
         # Auton data is folder-based, independent of the mechanism project, so a
         # new mechanism project just re-reads the current auton files folder.
         self.auton_builder._load_from_source_folder()
@@ -103,17 +107,20 @@ class DragonSuiteWindow(QMainWindow):
             return
         # Load into the Mechanism Generator and refresh its tree/editor.
         self.mechanism_generator.load_project_from_path(path)
+        self.camera_creator.refresh_robots()
         # Auton builder reflects any new mechanism states from the loaded project.
         self.auton_builder._load_saved_data()
         self.auton_builder.refresh_tree()
         self.auton_builder.refresh_field()
 
     def _save_project(self):
+        self.camera_creator.commit_edits()
         if self.auton_builder.save_to_project():
             return
         self.auton_builder.save_to_project_as()
 
     def _save_project_as(self):
+        self.camera_creator.commit_edits()
         self.auton_builder.save_to_project_as()
 
     def _on_tab_changed(self, index):
