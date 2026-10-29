@@ -40,10 +40,19 @@
 #include "RobotIdentifier.h"
 
 // Hardware Includes
+{%- if has_candi %}
 #include "ctre/phoenix6/CANdi.hpp"
+{%- endif %}
+{%- if has_talon_fx %}
 #include "ctre/phoenix6/TalonFX.hpp"
+{%- endif %}
+{%- if has_talon_fxs %}
 #include "ctre/phoenix6/TalonFXS.hpp"
+{%- endif %}
 #include "ctre/phoenix6/configs/Configuration.hpp"
+{%- if has_talon_srx %}
+#include "compat/ctre/phoenix/motorcontrol/can/WPI_TalonSRX.hpp"
+{%- endif %}
 {%- if has_follower %}
 #include "ctre/phoenix6/controls/Follower.hpp"
 {%- endif %}
@@ -108,8 +117,13 @@ public:
     {%- for method in update_methods %}
     void {{ method.name }}({{ method.param_type }} {{ method.param_name }})
     {
+      {%- if method.is_talon_srx %}
+      {{ method.target_name }} = {{ method.assignment_expr }};
+      {{ method.active_target_name }} = {{ method.target_expr }};
+      {%- else %}
         {{ method.target_name }}.{{ method.prop_name }} = {{ method.param_name }};
         {{ method.active_target_name }} = {{ method.target_expr }};
+      {%- endif %}
     }
     {%- endfor %}
     {%- for sol in solenoids %}
@@ -181,11 +195,19 @@ private:
 
   // Control requested
   {%- for req in control_requests %}
+    {%- if req.hardware_type == "TalonSRX" %}
+    double {{ {'name': req.hardware_name ~ req.control_data_name, 'type': 'ControlData'} | member_var }}{0.0};
+    {%- else %}
     ctre::phoenix6::controls::{{ req.ControlRequest }} {{ {'name': req.hardware_name ~ req.control_data_name, 'type': 'ControlData'} | member_var }}{0.0{{ req.Unit | short_unit}}};
+    {%- endif %}
   {%- endfor %}
   {%- for hw_name, active_control in hardware_active_targets.items() %}
     {%- if active_control %}
+    {%- if hardware_types.get(hw_name) == "TalonSRX" %}
+    double *{{ {'name': hw_name, 'type': 'ControlData'} | member_var }}ActiveTarget = &{{ {'name': hw_name ~ active_control, 'type': 'ControlData'} | member_var }};
+    {%- else %}
     ctre::phoenix6::controls::ControlRequest *{{ {'name': hw_name, 'type': 'ControlData'} | member_var }}ActiveTarget = &{{ {'name': hw_name ~ active_control, 'type': 'ControlData'} | member_var }};
+    {%- endif %}
     {%- endif %}
   {%- endfor %}
   {%- for sol in solenoids %}

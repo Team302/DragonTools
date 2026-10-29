@@ -113,7 +113,7 @@ Robots without this optional block do not generate camera definitions.
 
 ```python
 {
-    "type": "TalonFX",          # TalonFX | TalonFXS | CANCoder | CANdi | Solenoid | DigitalInput
+    "type": "TalonFX",          # TalonFX | TalonFXS | TalonSRX | CANCoder | CANdi | Solenoid | DigitalInput
     "name": "intake",           # logical device name
     "id": 0,                    # CAN id
     "bus": "canivore",
@@ -122,7 +122,8 @@ Robots without this optional block do not generate camera definitions.
 ```
 
 The default `config` for each type is produced by
-[`gui/hardware_defaults.py`](../gui/hardware_defaults.py).
+[`gui/hardware_defaults.py`](../gui/hardware_defaults.py). TalonFX/TalonFXS use
+Phoenix 6 config fields; TalonSRX uses a separate Phoenix 5 config schema.
 
 ### Control-data dict
 

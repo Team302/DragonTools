@@ -98,7 +98,7 @@ class ProjectModel:
 
                 for st in mech.get("states", []):
                     if isinstance(st, dict):
-                        if hw_type in ["TalonFX", "TalonFXS"] and "motor_targets" in st:
+                        if hw_type in ["TalonFX", "TalonFXS", "TalonSRX"] and "motor_targets" in st:
                             st["motor_targets"] = [
                                 mt for mt in st.get("motor_targets", []) if mt.get("HardwareName") != hw_name
                             ]
@@ -156,7 +156,7 @@ class ProjectModel:
                 motors = [
                     hw["name"]
                     for hw in mech_data.get("hardware", [])
-                    if hw.get("type") in ["TalonFX", "TalonFXS"]
+                    if hw.get("type") in ["TalonFX", "TalonFXS", "TalonSRX"]
                 ]
                 if motors:
                     hw_name = motors[0]
@@ -183,7 +183,7 @@ class ProjectModel:
         motors = [
             hw["name"]
             for hw in mech_data.get("hardware", [])
-            if hw.get("type") in ["TalonFX", "TalonFXS"]
+            if hw.get("type") in ["TalonFX", "TalonFXS", "TalonSRX"]
         ]
         solenoids = [
             hw["name"]
@@ -240,7 +240,7 @@ class ProjectModel:
         default_cd = self.default_control_data_name(mech_data)
         for st in mech_data.get("states", []):
             if isinstance(st, dict):
-                if hw_type in ["TalonFX", "TalonFXS"]:
+                if hw_type in ["TalonFX", "TalonFXS", "TalonSRX"]:
                     if "motor_targets" not in st:
                         st["motor_targets"] = []
                     if not any(mt.get("HardwareName") == hw_name for mt in st["motor_targets"]):
@@ -276,7 +276,7 @@ class ProjectModel:
         default_cd = self.default_control_data_name(mech_data)
         motor_targets = []
         for hw in mech_data.get("hardware", []):
-            if hw.get("type") in ["TalonFX", "TalonFXS"]:
+            if hw.get("type") in ["TalonFX", "TalonFXS", "TalonSRX"]:
                 mt = hwd.default_motor_target(hw["name"])
                 mt["ControlData"] = default_cd
                 mt["Unit"] = self.control_data_unit(mech_data, default_cd)

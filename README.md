@@ -32,8 +32,8 @@ GUI (PyQt6)  →  project JSON  →  code generator  →  Jinja2 templates  → 
 - **Multi-robot aware** — the same mechanism can live on several robots (comp bot,
   practice bot, etc.); each robot gets its own `Create`/`Initialize` methods and
   its own control-data XML keyed by team number.
-- **Hardware support** — TalonFX, TalonFXS, CANCoder, CANdi, Solenoid, and
-  DigitalInput, each with sensible CTRE Phoenix 6 default configurations.
+- **Hardware support** — TalonFX and TalonFXS via CTRE Phoenix 6, TalonSRX via
+  CTRE Phoenix 5, plus CANCoder, CANdi, Solenoid, and DigitalInput.
 - **Closed & open loop** — control data drives Slot0 gains, Motion Magic, and the
   correct control request per motor target.
 - **Deterministic output** — the generated tree drops straight into a WPILib

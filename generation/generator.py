@@ -229,11 +229,14 @@ class DragonCodeGenerator():
             "states": mech_info["states"] if mech_info["states"] else ["STATE_OFF"],
             "state_details": mech_info["state_details"],
             "hardware": hardware_list,
+            "hardware_types": {
+                name: hw_type for name, hw_type in mech_info["hardware"]
+            },
             "control_data": list(mech_info["control_data"].values()),
             "control_requests": control_requests,
             "hardware_active_targets": active_targets,
             "update_methods": self.control_data.update_methods(control_requests),
-            "motor_updates": self.control_data.motor_updates(hardware_list, active_targets),
+            "motor_updates": self.control_data.motor_updates(hardware_list, active_targets, control_requests),
             "solenoids": self.hardware.solenoids(hardware_list),
             "logging_motors": logging_data["logging_motors"],
             "cached_values": logging_data["cached_values"],

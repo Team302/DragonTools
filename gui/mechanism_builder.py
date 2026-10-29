@@ -456,6 +456,7 @@ class MechanismEditorWindow(QMainWindow):
         hw_btns = QHBoxLayout()
         btn_talon_fx = QPushButton("+ TalonFX")
         btn_talon_fxs = QPushButton("+ TalonFXS")
+        btn_talon_srx = QPushButton("+ TalonSRX")
         btn_coder = QPushButton("+ CANCoder")
         btn_candi = QPushButton("+ CANdi")
         btn_solenoid = QPushButton("+ Solenoid")
@@ -463,6 +464,7 @@ class MechanismEditorWindow(QMainWindow):
 
         btn_talon_fx.clicked.connect(lambda: self.add_hardware(mech_data, "TalonFX"))
         btn_talon_fxs.clicked.connect(lambda: self.add_hardware(mech_data, "TalonFXS"))
+        btn_talon_srx.clicked.connect(lambda: self.add_hardware(mech_data, "TalonSRX"))
         btn_coder.clicked.connect(lambda: self.add_hardware(mech_data, "CANCoder"))
         btn_candi.clicked.connect(lambda: self.add_hardware(mech_data, "CANdi"))
         btn_solenoid.clicked.connect(lambda: self.add_hardware(mech_data, "Solenoid"))
@@ -470,6 +472,7 @@ class MechanismEditorWindow(QMainWindow):
 
         hw_btns.addWidget(btn_talon_fx)
         hw_btns.addWidget(btn_talon_fxs)
+        hw_btns.addWidget(btn_talon_srx)
         hw_btns.addWidget(btn_coder)
         hw_btns.addWidget(btn_candi)
         hw_btns.addWidget(btn_solenoid)
@@ -788,7 +791,7 @@ class MechanismEditorWindow(QMainWindow):
 
             elif isinstance(value, list):
                 if key == "motor_targets" and not self.model.has_hardware_type(
-                    self.current_mech_data, ["TalonFX", "TalonFXS"]
+                    self.current_mech_data, ["TalonFX", "TalonFXS","TalonSRX"]
                 ):
                     continue
                 if key == "solenoid_targets" and not self.model.has_hardware_type(
@@ -826,7 +829,7 @@ class MechanismEditorWindow(QMainWindow):
                             hw_options = [
                                 hw["name"]
                                 for hw in (self.current_mech_data or {}).get("hardware", [])
-                                if hw.get("type") in ["TalonFX", "TalonFXS"]
+                                if hw.get("type") in ["TalonFX", "TalonFXS", "TalonSRX"]
                             ]
 
                             fields = QHBoxLayout()

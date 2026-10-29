@@ -13,6 +13,11 @@ class ControlDataBuilder:
 
     def hardware_control_requests(self, mech_info):
         """One entry per unique (motor, control-data) pair referenced by states."""
+        hardware_types = {
+            name: hw_type
+            for (name, hw_type) in mech_info.get("hardware", {})
+            if hw_type in nm.MOTOR_TYPES
+        }
         requests = []
         seen = set()
         for state_name in mech_info.get("states", []):
@@ -32,6 +37,7 @@ class ControlDataBuilder:
                     "control_data_name": control_data_name,
                     "ControlRequest": control_data.get("ControlRequest", "ControlRequest"),
                     "Unit": control_data.get("Unit", "double"),
+                    "hardware_type": hardware_types.get(hw_name, "TalonFX"),
                 })
         return requests
 
@@ -78,7 +84,12 @@ class ControlDataBuilder:
             param_type = nm.get_unit(req["Unit"])
             param_name = self._param_name(req["ControlRequest"])
             prop_name, use_slot = self._update_property(req["ControlRequest"])
-            target_expr = f"&{target_name}.WithSlot(0)" if use_slot else f"&{target_name}"
+            is_talon_srx = req.get("hardware_type") == "TalonSRX"
+            target_expr = (
+                f"&{target_name}"
+                if is_talon_srx
+                else f"&{target_name}.WithSlot(0)" if use_slot else f"&{target_name}"
+            )
 
             methods.append({
                 "name": f"UpdateTarget{nm.pascal_case(hw_name)}{nm.pascal_case(cd_name)}",
@@ -88,6 +99,8 @@ class ControlDataBuilder:
                 "prop_name": prop_name,
                 "target_expr": target_expr,
                 "active_target_name": active_target_name,
+                "is_talon_srx": is_talon_srx,
+                "assignment_expr": f"{param_name}.value()" if is_talon_srx and req["Unit"] != "double" else param_name,
             })
         return methods
 
@@ -110,7 +123,7 @@ class ControlDataBuilder:
                     result[hw_name] = cd_name
         return result
 
-    def motor_updates(self, hardware, hardware_active_targets):
+    def motor_updates(self, hardware, hardware_active_targets, control_requests):
         """Build the per-loop Update() statements that push motor active targets.
 
         Motors get "<member>->SetControl(*<activeTarget>);". Only motors that
@@ -127,7 +140,22 @@ class ControlDataBuilder:
                 continue
             hardware_var = nm.member_variable(hw)
             active_target_var = nm.member_variable({"name": hw_name, "type": "ControlData"}) + "ActiveTarget"
-            updates.append({"hardware_var": hardware_var, "active_target_var": active_target_var})
+            update = {"hardware_var": hardware_var, "active_target_var": active_target_var}
+            if hw_type == "TalonSRX":
+                cd_name = hardware_active_targets.get(hw_name, "")
+                request = next((req for req in control_requests
+                                if req["hardware_name"] == hw_name and req["control_data_name"] == cd_name), None)
+                update["is_talon_srx"] = True
+                update["control_mode"] = nm.TALON_SRX_CONTROL_MODES.get(
+                    request["ControlRequest"] if request else "DutyCycleOut"
+                )
+                if update["control_mode"] is None:
+                    raise ValueError(
+                        f"Control request {request['ControlRequest']} is not supported by TalonSRX {hw_name}"
+                    )
+            else:
+                update["is_talon_srx"] = False
+            updates.append(update)
         return updates
 
     def _param_name(self, control_request):

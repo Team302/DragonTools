@@ -32,16 +32,32 @@
 #include "teleopcontrol/TeleopControl.h"
 #include "utils/logging/signals/DragonDataLogger.h"
 
+{%- if has_candi %}
+#include "ctre/phoenix6/CANdi.hpp"
+{%- endif %}
+{%- if has_talon_fx %}
 #include "ctre/phoenix6/TalonFX.hpp"
+{%- endif %}
+{%- if has_talon_fxs %}
 #include "ctre/phoenix6/TalonFXS.hpp"
+{%- endif %}
 #include "ctre/phoenix6/configs/Configuration.hpp"
+{%- if has_talon_srx %}
+#include "compat/ctre/phoenix/motorcontrol/can/WPI_TalonSRX.hpp"
+{%- endif %}
 {%- if has_follower %}
 #include "ctre/phoenix6/controls/Follower.hpp"
 {%- endif %}
 
+{%- if has_candi %}
 using ctre::phoenix6::configs::CANdiConfiguration;
+{%- endif %}
+{%- if has_talon_fx %}
 using ctre::phoenix6::configs::TalonFXConfiguration;
+{%- endif %}
+{%- if has_talon_fxs %}
 using ctre::phoenix6::configs::TalonFXSConfiguration;
+{%- endif %}
 
 using std::string;
 
@@ -81,6 +97,8 @@ void {{ mechanism_name }}::Create{{ robot_name }}()
     {{ hw | member_var }} = new frc::Solenoid(frc::PneumaticsModuleType::REVPH, {{ hw.Channel }});
     {%- elif hw.type == "DigitalInput" %}
     {{ hw | member_var }} = new frc::DigitalInput({{ hw.DigitalID }});
+    {%- elif hw.type == "TalonSRX" %}
+    {{ hw | member_var }} = new {{ hw.type | cpp_type }}({{ hw.id }});
     {%- else %}
     {{ hw | member_var }} = new {{ hw.type | cpp_type }}({{ hw.id }}, ctre::phoenix6::CANBus("{{ hw.bus }}"));
     {%- endif %}
@@ -168,7 +186,11 @@ void {{ mechanism_name }}::Periodic()
 void {{ mechanism_name }}::Update()
 {
     {%- for motor in motor_updates %}
+    {%- if motor.is_talon_srx %}
+    {{ motor.hardware_var }}->Set(ctre::phoenix::motorcontrol::ControlMode::{{ motor.control_mode }}, *{{ motor.active_target_var }});
+    {%- else %}
     {{ motor.hardware_var }}->SetControl(*{{ motor.active_target_var }});
+    {%- endif %}
     {%- endfor %}
     {%- for sol in solenoids %}
     {{ sol.hardware_var }}->Set({{ sol.member_var }});
@@ -196,7 +218,11 @@ void {{ mechanism_name }}::DataLog(uint64_t timestamp)
     {%- if motor.closed_loop %}
     LogDoubleData(timestamp, {{ motor.position_path_member }}, {{ motor.cached_value_expr }});
     {%- endif %}
+    {%- if motor.is_talon_srx %}
+    LogStringData(timestamp, {{ motor.control_request_member }}, "{{ motor.control_request_name }}");
+    {%- else %}
     LogStringData(timestamp, {{ motor.control_request_member }}, std::string({{ motor.active_target_var }}->GetName()));
+    {%- endif %}
     {%- endfor %}
 }
 

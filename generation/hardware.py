@@ -26,6 +26,10 @@ class HardwareBuilder:
             "has_solenoid": any(hw.get("type") == "Solenoid" for hw in hardware),
             "has_digital_input": any(hw.get("type") == "DigitalInput" for hw in hardware),
             "has_follower": has_follower,
+            "has_talon_srx": any(hw.get("type") == "TalonSRX" for hw in hardware),
+            "has_candi": any(hw.get("type") == "CANdi" for hw in hardware),
+            "has_talon_fxs": any(hw.get("type") == "TalonFXS" for hw in hardware),
+            "has_talon_fx": any(hw.get("type") == "TalonFX" for hw in hardware),
         }
 
     def solenoids(self, hardware):
@@ -109,6 +113,9 @@ class HardwareBuilder:
 
     def _build_motor_init_body(self, hw, closed_loop_cd_name, control_data):
         """Emit the TalonFX/TalonFXS configuration body from the JSON config block."""
+        if hw.get("type") == "TalonSRX":
+            return self._build_talon_srx_init_body(hw, closed_loop_cd_name, control_data)
+
         cfg = hw.get("config", {})
         hw_type = hw.get("type")
         is_fxs = hw_type == "TalonFXS"
@@ -262,6 +269,53 @@ class HardwareBuilder:
                 add(f"configs.Slot0.StaticFeedforwardSign = ctre::phoenix6::signals::StaticFeedforwardSignValue::{closed_cd['StaticFeedforwardSignValue']};")
 
         lines.extend(self._apply_block_lines(member, "configs"))
+        return lines
+
+    def _build_talon_srx_init_body(self, hw, closed_loop_cd_name, control_data):
+        """Emit Phoenix 5 configuration calls for a TalonSRX."""
+        cfg = hw.get("config", {})
+        member = nm.member_variable(hw)
+        lines = [f"\t{member}->ConfigFactoryDefault();"]
+
+        def add(key, call, formatter=lambda value: nm.cpp_num(value)):
+            if key in cfg:
+                lines.append(f"\t{member}->{call}({formatter(cfg[key])});")
+
+        add("Inverted", "SetInverted", nm.cpp_bool)
+        add("SensorPhase", "SetSensorPhase", nm.cpp_bool)
+        if "NeutralModeValue" in cfg:
+            neutral = cfg["NeutralModeValue"]
+            if neutral not in ("Brake", "Coast"):
+                raise ValueError(f"Unsupported TalonSRX neutral mode: {neutral}")
+            lines.append(
+                f"\t{member}->SetNeutralMode(ctre::phoenix::motorcontrol::NeutralMode::{neutral});"
+            )
+        for key, call in (
+            ("OpenLoopRamp", "ConfigOpenloopRamp"),
+            ("ClosedLoopRamp", "ConfigClosedloopRamp"),
+            ("PeakOutputForward", "ConfigPeakOutputForward"),
+            ("PeakOutputReverse", "ConfigPeakOutputReverse"),
+            ("NominalOutputForward", "ConfigNominalOutputForward"),
+            ("NominalOutputReverse", "ConfigNominalOutputReverse"),
+            ("ContinuousCurrentLimit", "ConfigContinuousCurrentLimit"),
+            ("PeakCurrentLimit", "ConfigPeakCurrentLimit"),
+            ("PeakCurrentDuration", "ConfigPeakCurrentDuration"),
+        ):
+            add(key, call)
+        add("EnableCurrentLimit", "EnableCurrentLimit", nm.cpp_bool)
+
+        closed_cd = control_data.get(closed_loop_cd_name) if closed_loop_cd_name else None
+        if closed_cd:
+            for key, call in (("p", "Config_kP"), ("i", "Config_kI"),
+                              ("d", "Config_kD"), ("f", "Config_kF")):
+                if key in closed_cd:
+                    lines.append(f"\t{member}->{call}(0, {nm.cpp_num(closed_cd[key])});")
+            request = closed_cd.get("ControlRequest", "")
+            if "MotionMagic" in request:
+                for key, call in (("cruise_velocity", "ConfigMotionCruiseVelocity"),
+                                  ("max_acceleration", "ConfigMotionAcceleration")):
+                    if key in closed_cd:
+                        lines.append(f"\t{member}->{call}({nm.cpp_num(closed_cd[key])});")
         return lines
 
     def _build_candi_init_body(self, hw):

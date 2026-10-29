@@ -7,7 +7,7 @@ model dependencies.
 
 
 def default_motor_target(hw_name=""):
-    """Default state target for a TalonFX / TalonFXS motor."""
+    """Default state target for a supported CTRE motor controller."""
     return {
         "HardwareName": hw_name,
         "Enabled": True,
@@ -134,6 +134,24 @@ def default_hardware(hw_type, name):
             new_hw["config"]["Commutation"] = {
                 "MotorArrangementValue": "Minion_JST",
             }
+    elif hw_type == "TalonSRX":
+        # TalonSRX uses the Phoenix 5 API, so keep its config separate from the
+        # Phoenix 6 TalonFX configuration schema above.
+        new_hw["config"] = {
+            "Inverted": False,
+            "SensorPhase": False,
+            "NeutralModeValue": "Brake",
+            "OpenLoopRamp": 0.1,
+            "ClosedLoopRamp": 0.25,
+            "PeakOutputForward": 1.0,
+            "PeakOutputReverse": -1.0,
+            "NominalOutputForward": 0.0,
+            "NominalOutputReverse": 0.0,
+            "ContinuousCurrentLimit": 0,
+            "PeakCurrentLimit": 0,
+            "PeakCurrentDuration": 0,
+            "EnableCurrentLimit": False,
+        }
     elif hw_type == "CANCoder":
         new_hw.update(
             {
