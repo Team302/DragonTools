@@ -7,7 +7,7 @@ model dependencies.
 
 
 def default_motor_target(hw_name=""):
-    """Default state target for a supported CTRE motor controller."""
+    """Default state target for a supported motor controller."""
     return {
         "HardwareName": hw_name,
         "Enabled": True,
@@ -62,7 +62,11 @@ def default_percent_out_control_data():
 
 def default_hardware(hw_type, name):
     """Build the default config dictionary for a piece of hardware."""
-    new_hw = {"type": hw_type, "name": name, "id": 0, "bus": "canivore"}
+    new_hw = {"type": hw_type, "name": name, "id": 0}
+    if hw_type == "SparkMax":
+        new_hw["canbus"] = 0
+    else:
+        new_hw["bus"] = "canivore"
 
     if hw_type in ["TalonFX", "TalonFXS"]:
         new_hw.update(
@@ -134,23 +138,14 @@ def default_hardware(hw_type, name):
             new_hw["config"]["Commutation"] = {
                 "MotorArrangementValue": "Minion_JST",
             }
-    elif hw_type == "TalonSRX":
-        # TalonSRX uses the Phoenix 5 API, so keep its config separate from the
-        # Phoenix 6 TalonFX configuration schema above.
+    elif hw_type == "SparkMax":
         new_hw["config"] = {
+            "MotorType": "kBrushless",
             "Inverted": False,
-            "SensorPhase": False,
-            "NeutralModeValue": "Brake",
-            "OpenLoopRamp": 0.1,
-            "ClosedLoopRamp": 0.25,
-            "PeakOutputForward": 1.0,
-            "PeakOutputReverse": -1.0,
-            "NominalOutputForward": 0.0,
-            "NominalOutputReverse": 0.0,
-            "ContinuousCurrentLimit": 0,
-            "PeakCurrentLimit": 0,
-            "PeakCurrentDuration": 0,
-            "EnableCurrentLimit": False,
+            "IdleMode": "kBrake",
+            "SmartCurrentLimit": 40,
+            "OpenLoopRampRate": 0.1,
+            "ClosedLoopRampRate": 0.25,
         }
     elif hw_type == "CANCoder":
         new_hw.update(

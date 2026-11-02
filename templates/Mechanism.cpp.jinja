@@ -42,8 +42,11 @@
 #include "ctre/phoenix6/TalonFXS.hpp"
 {%- endif %}
 #include "ctre/phoenix6/configs/Configuration.hpp"
-{%- if has_talon_srx %}
-#include "compat/ctre/phoenix/motorcontrol/can/WPI_TalonSRX.hpp"
+{%- if has_spark_max %}
+#include "rev/SparkMax.h"
+{%- endif %}
+{%- if has_spark_max %}
+#include "rev/config/SparkMaxConfig.h"
 {%- endif %}
 {%- if has_follower %}
 #include "ctre/phoenix6/controls/Follower.hpp"
@@ -97,8 +100,8 @@ void {{ mechanism_name }}::Create{{ robot_name }}()
     {{ hw | member_var }} = new frc::Solenoid(frc::PneumaticsModuleType::REVPH, {{ hw.Channel }});
     {%- elif hw.type == "DigitalInput" %}
     {{ hw | member_var }} = new frc::DigitalInput({{ hw.DigitalID }});
-    {%- elif hw.type == "TalonSRX" %}
-    {{ hw | member_var }} = new {{ hw.type | cpp_type }}({{ hw.id }});
+    {%- elif hw.type == "SparkMax" %}
+    {{ hw | member_var }} = new rev::spark::SparkMax({{ hw.canbus | int }}, {{ hw.id }}, rev::spark::SparkLowLevel::MotorType::{{ hw.config.MotorType | default('kBrushless') }});
     {%- else %}
     {{ hw | member_var }} = new {{ hw.type | cpp_type }}({{ hw.id }}, ctre::phoenix6::CANBus("{{ hw.bus }}"));
     {%- endif %}
@@ -186,8 +189,8 @@ void {{ mechanism_name }}::Periodic()
 void {{ mechanism_name }}::Update()
 {
     {%- for motor in motor_updates %}
-    {%- if motor.is_talon_srx %}
-    {{ motor.hardware_var }}->Set(ctre::phoenix::motorcontrol::ControlMode::{{ motor.control_mode }}, *{{ motor.active_target_var }});
+    {%- if motor.is_spark_max %}
+    {{ motor.hardware_var }}->GetClosedLoopController().SetSetpoint(*{{ motor.active_target_var }}, rev::spark::SparkLowLevel::ControlType::{{ motor.control_type }});
     {%- else %}
     {{ motor.hardware_var }}->SetControl(*{{ motor.active_target_var }});
     {%- endif %}
@@ -218,7 +221,7 @@ void {{ mechanism_name }}::DataLog(uint64_t timestamp)
     {%- if motor.closed_loop %}
     LogDoubleData(timestamp, {{ motor.position_path_member }}, {{ motor.cached_value_expr }});
     {%- endif %}
-    {%- if motor.is_talon_srx %}
+    {%- if motor.is_spark_max %}
     LogStringData(timestamp, {{ motor.control_request_member }}, "{{ motor.control_request_name }}");
     {%- else %}
     LogStringData(timestamp, {{ motor.control_request_member }}, std::string({{ motor.active_target_var }}->GetName()));

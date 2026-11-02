@@ -84,10 +84,10 @@ class ControlDataBuilder:
             param_type = nm.get_unit(req["Unit"])
             param_name = self._param_name(req["ControlRequest"])
             prop_name, use_slot = self._update_property(req["ControlRequest"])
-            is_talon_srx = req.get("hardware_type") == "TalonSRX"
+            is_spark_max = req.get("hardware_type") == "SparkMax"
             target_expr = (
                 f"&{target_name}"
-                if is_talon_srx
+                if is_spark_max
                 else f"&{target_name}.WithSlot(0)" if use_slot else f"&{target_name}"
             )
 
@@ -99,8 +99,8 @@ class ControlDataBuilder:
                 "prop_name": prop_name,
                 "target_expr": target_expr,
                 "active_target_name": active_target_name,
-                "is_talon_srx": is_talon_srx,
-                "assignment_expr": f"{param_name}.value()" if is_talon_srx and req["Unit"] != "double" else param_name,
+                "is_spark_max": is_spark_max,
+                "assignment_expr": f"{param_name}.value()" if is_spark_max and req["Unit"] != "double" else param_name,
             })
         return methods
 
@@ -141,20 +141,20 @@ class ControlDataBuilder:
             hardware_var = nm.member_variable(hw)
             active_target_var = nm.member_variable({"name": hw_name, "type": "ControlData"}) + "ActiveTarget"
             update = {"hardware_var": hardware_var, "active_target_var": active_target_var}
-            if hw_type == "TalonSRX":
+            if hw_type == "SparkMax":
                 cd_name = hardware_active_targets.get(hw_name, "")
                 request = next((req for req in control_requests
                                 if req["hardware_name"] == hw_name and req["control_data_name"] == cd_name), None)
-                update["is_talon_srx"] = True
-                update["control_mode"] = nm.TALON_SRX_CONTROL_MODES.get(
+                update["is_spark_max"] = True
+                update["control_type"] = nm.SPARK_MAX_CONTROL_TYPES.get(
                     request["ControlRequest"] if request else "DutyCycleOut"
                 )
-                if update["control_mode"] is None:
+                if update["control_type"] is None:
                     raise ValueError(
-                        f"Control request {request['ControlRequest']} is not supported by TalonSRX {hw_name}"
+                        f"Control request {request['ControlRequest']} is not supported by Spark MAX {hw_name}"
                     )
             else:
-                update["is_talon_srx"] = False
+                update["is_spark_max"] = False
             updates.append(update)
         return updates
 

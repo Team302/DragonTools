@@ -18,6 +18,8 @@ UNIT_OPTIONS = ["double", "turn", "inch", "deg", "RPM", "volt"]
 ENUM_FIELDS = {
     # Motor bridge neutral mode
     "NeutralModeValue": ["Coast", "Brake"],
+    "IdleMode": ["kCoast", "kBrake"],
+    "MotorType": ["kBrushed", "kBrushless"],
 
     # Motor inversion
     "InvertedValue": ["CounterClockwise_Positive", "Clockwise_Positive"],

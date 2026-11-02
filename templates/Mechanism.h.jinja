@@ -50,8 +50,11 @@
 #include "ctre/phoenix6/TalonFXS.hpp"
 {%- endif %}
 #include "ctre/phoenix6/configs/Configuration.hpp"
-{%- if has_talon_srx %}
-#include "compat/ctre/phoenix/motorcontrol/can/WPI_TalonSRX.hpp"
+{%- if has_spark_max %}
+#include "rev/SparkMax.h"
+{%- endif %}
+{%- if has_spark_max %}
+#include "rev/config/SparkMaxConfig.h"
 {%- endif %}
 {%- if has_follower %}
 #include "ctre/phoenix6/controls/Follower.hpp"
@@ -117,7 +120,7 @@ public:
     {%- for method in update_methods %}
     void {{ method.name }}({{ method.param_type }} {{ method.param_name }})
     {
-      {%- if method.is_talon_srx %}
+      {%- if method.is_spark_max %}
       {{ method.target_name }} = {{ method.assignment_expr }};
       {{ method.active_target_name }} = {{ method.target_expr }};
       {%- else %}
@@ -195,7 +198,7 @@ private:
 
   // Control requested
   {%- for req in control_requests %}
-    {%- if req.hardware_type == "TalonSRX" %}
+    {%- if req.hardware_type == "SparkMax" %}
     double {{ {'name': req.hardware_name ~ req.control_data_name, 'type': 'ControlData'} | member_var }}{0.0};
     {%- else %}
     ctre::phoenix6::controls::{{ req.ControlRequest }} {{ {'name': req.hardware_name ~ req.control_data_name, 'type': 'ControlData'} | member_var }}{0.0{{ req.Unit | short_unit}}};
@@ -203,7 +206,7 @@ private:
   {%- endfor %}
   {%- for hw_name, active_control in hardware_active_targets.items() %}
     {%- if active_control %}
-    {%- if hardware_types.get(hw_name) == "TalonSRX" %}
+    {%- if hardware_types.get(hw_name) == "SparkMax" %}
     double *{{ {'name': hw_name, 'type': 'ControlData'} | member_var }}ActiveTarget = &{{ {'name': hw_name ~ active_control, 'type': 'ControlData'} | member_var }};
     {%- else %}
     ctre::phoenix6::controls::ControlRequest *{{ {'name': hw_name, 'type': 'ControlData'} | member_var }}ActiveTarget = &{{ {'name': hw_name ~ active_control, 'type': 'ControlData'} | member_var }};

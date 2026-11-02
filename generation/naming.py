@@ -13,7 +13,7 @@ import re
 MEMBER_TYPE_SUFFIX = {
     "TalonFX": "Motor",
     "TalonFXS": "Motor",
-    "TalonSRX": "Motor",
+    "SparkMax": "Motor",
     "CANCoder": "CANcoder",
     "Solenoid": "Solenoid",
     "CANdi": "CANdi",
@@ -24,7 +24,7 @@ MEMBER_TYPE_SUFFIX = {
 HARDWARE_CPP_TYPE = {
     "Solenoid": "frc::Solenoid",
     "DigitalInput": "frc::DigitalInput",
-    "TalonSRX": "ctre::phoenix::motorcontrol::can::WPI_TalonSRX",
+    "SparkMax": "rev::spark::SparkMax",
 }
 
 # Maps a control-data unit to the matching C++ units type.
@@ -63,22 +63,21 @@ SHORT_UNIT_SUFFIX = {
 }
 
 # Hardware types that are motors (drive ControlData/Slot0 logic).
-MOTOR_TYPES = ("TalonFX", "TalonFXS", "TalonSRX")
+MOTOR_TYPES = ("TalonFX", "TalonFXS", "SparkMax")
 
 # Control-request name fragments that indicate a closed-loop (PID slot) request.
 CLOSED_LOOP_KEYWORDS = ("Position", "Velocity", "MotionMagic")
 
-# Phoenix 6 request names exposed by the UI mapped onto Phoenix 5 TalonSRX
-# control modes. These are the request families TalonSRX can represent.
-TALON_SRX_CONTROL_MODES = {
-    "DutyCycleOut": "PercentOutput",
-    "VoltageOut": "PercentOutput",
-    "PositionDutyCycle": "Position",
-    "PositionVoltage": "Position",
-    "VelocityDutyCycle": "Velocity",
-    "VelocityVoltage": "Velocity",
-    "MotionMagicDutyCycle": "MotionMagic",
-    "MotionMagicVoltage": "MotionMagic",
+# Supported REVLib Spark MAX closed-loop/open-loop control modes.
+SPARK_MAX_CONTROL_TYPES = {
+    "DutyCycleOut": "kDutyCycle",
+    "VoltageOut": "kVoltage",
+    "PositionDutyCycle": "kPosition",
+    "PositionVoltage": "kPosition",
+    "VelocityDutyCycle": "kVelocity",
+    "VelocityVoltage": "kVelocity",
+    "MotionMagicDutyCycle": "kMAXMotionPositionControl",
+    "MotionMagicVoltage": "kMAXMotionPositionControl",
 }
 
 
