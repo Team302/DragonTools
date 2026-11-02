@@ -146,6 +146,11 @@ def default_hardware(hw_type, name):
             "SmartCurrentLimit": 40,
             "OpenLoopRampRate": 0.1,
             "ClosedLoopRampRate": 0.25,
+            "Follower": {
+                "Enabled": False,
+                "FollowerID": 0,
+                "Invert": False,
+            },
         }
     elif hw_type == "CANCoder":
         new_hw.update(

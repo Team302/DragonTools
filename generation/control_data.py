@@ -18,6 +18,11 @@ class ControlDataBuilder:
             for (name, hw_type) in mech_info.get("hardware", {})
             if hw_type in nm.MOTOR_TYPES
         }
+        follower_names = {
+            name
+            for (name, _hw_type), hw in mech_info.get("hardware", {}).items()
+            if hw.get("config", {}).get("Follower", {}).get("Enabled", False)
+        }
         requests = []
         seen = set()
         for state_name in mech_info.get("states", []):
@@ -25,7 +30,7 @@ class ControlDataBuilder:
             for motor_target in state.get("motor_targets", []):
                 hw_name = motor_target.get("HardwareName") or motor_target.get("hardware_name")
                 control_data_name = motor_target.get("ControlData")
-                if not hw_name or not control_data_name:
+                if not hw_name or not control_data_name or hw_name in follower_names:
                     continue
                 key = (hw_name, control_data_name)
                 if key in seen:
@@ -43,18 +48,26 @@ class ControlDataBuilder:
 
     def hardware_active_targets(self, mech_info, control_requests):
         """Map each motor to the control data it activates first (its default target)."""
+        follower_names = {
+            name
+            for (name, _hw_type), hw in mech_info.get("hardware", {}).items()
+            if hw.get("config", {}).get("Follower", {}).get("Enabled", False)
+        }
         active = {}
         for state_name in mech_info.get("states", []):
             state = mech_info["state_details"].get(state_name, {})
             for motor_target in state.get("motor_targets", []):
                 hw_name = motor_target.get("HardwareName") or motor_target.get("hardware_name")
                 control_data_name = motor_target.get("ControlData")
-                if not hw_name or not control_data_name:
+                if not hw_name or not control_data_name or hw_name in follower_names:
                     continue
                 if hw_name not in active:
                     active[hw_name] = control_data_name
 
         for hw_name, _hw_type in mech_info.get("hardware", {}).keys():
+            if hw_name in follower_names:
+                active[hw_name] = ""
+                continue
             if hw_name not in active:
                 first_request = next(
                     (req for req in control_requests if req["hardware_name"] == hw_name),
@@ -111,12 +124,17 @@ class ControlDataBuilder:
         only ever run open-loop are absent from the result and get no Slot0.
         """
         result = {}
+        follower_names = {
+            name
+            for (name, _hw_type), hw in mech_info.get("hardware", {}).items()
+            if hw.get("config", {}).get("Follower", {}).get("Enabled", False)
+        }
         for state_name in mech_info.get("states", []):
             state = mech_info["state_details"].get(state_name, {})
             for mt in state.get("motor_targets", []):
                 hw_name = mt.get("HardwareName") or mt.get("hardware_name")
                 cd_name = mt.get("ControlData")
-                if not hw_name or not cd_name or hw_name in result:
+                if not hw_name or not cd_name or hw_name in result or hw_name in follower_names:
                     continue
                 cd = mech_info["control_data"].get(cd_name, {})
                 if nm.is_closed_loop(cd.get("ControlRequest")):
@@ -135,6 +153,8 @@ class ControlDataBuilder:
             hw_name = hw.get("name", "")
             hw_type = hw.get("type", "")
             if hw_type not in nm.MOTOR_TYPES:
+                continue
+            if hw.get("config", {}).get("Follower", {}).get("Enabled", False):
                 continue
             if not hardware_active_targets.get(hw_name):
                 continue

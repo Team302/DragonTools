@@ -248,6 +248,11 @@ class DragonCodeGenerator():
 
     def _render_commands(self, mech_name, mech_info, template_data, cmd_dir, current_year):
         """Render the per-state command .h/.cpp files."""
+        follower_names = {
+            name
+            for (name, _hw_type), hw in mech_info.get("hardware", {}).items()
+            if hw.get("config", {}).get("Follower", {}).get("Enabled", False)
+        }
         for state in template_data["states"]:
             # Cleans "Empty Hopper" into "IntakeEmptyHopperCommand"
             cmd_name = f"{mech_name}{nm.state_class(state)}Command"
@@ -259,6 +264,12 @@ class DragonCodeGenerator():
                     "solenoid_targets": [],
                 },
             )
+            state_data = dict(state_data)
+            state_data["motor_targets"] = [
+                target
+                for target in state_data.get("motor_targets", [])
+                if (target.get("HardwareName") or target.get("hardware_name")) not in follower_names
+            ]
 
             cmd_data = {
                 "year": current_year,

@@ -159,6 +159,18 @@ class ProjectModel:
             for hw in mech_data.get("hardware", [])
         )
 
+    @staticmethod
+    def is_motor_follower(hw):
+        """Whether a motor's config marks it as a follower."""
+        return bool(hw.get("config", {}).get("Follower", {}).get("Enabled", False))
+
+    def has_controllable_motor(self, mech_data):
+        return bool(mech_data) and any(
+            hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"]
+            and not self.is_motor_follower(hw)
+            for hw in mech_data.get("hardware", [])
+        )
+
     def find_mech_location(self, mech_data):
         """Return (robot_id, mech_name) for the given mech_data reference, or (None, None)."""
         for robot_id, robot_data in self.project_data["robots"].items():
@@ -185,6 +197,7 @@ class ProjectModel:
                     hw["name"]
                     for hw in mech_data.get("hardware", [])
                     if hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"]
+                    and not self.is_motor_follower(hw)
                 ]
                 if motors:
                     hw_name = motors[0]
@@ -212,6 +225,7 @@ class ProjectModel:
             hw["name"]
             for hw in mech_data.get("hardware", [])
             if hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"]
+            and not self.is_motor_follower(hw)
         ]
         solenoids = [
             hw["name"]
@@ -268,7 +282,7 @@ class ProjectModel:
         default_cd = self.default_control_data_name(mech_data)
         for st in mech_data.get("states", []):
             if isinstance(st, dict):
-                if hw_type in ["TalonFX", "TalonFXS", "SparkMax"]:
+                if hw_type in ["TalonFX", "TalonFXS", "SparkMax"] and not self.is_motor_follower(new_hw):
                     if "motor_targets" not in st:
                         st["motor_targets"] = []
                     if not any(mt.get("HardwareName") == hw_name for mt in st["motor_targets"]):
@@ -304,7 +318,7 @@ class ProjectModel:
         default_cd = self.default_control_data_name(mech_data)
         motor_targets = []
         for hw in mech_data.get("hardware", []):
-            if hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"]:
+            if hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"] and not self.is_motor_follower(hw):
                 mt = hwd.default_motor_target(hw["name"])
                 mt["ControlData"] = default_cd
                 mt["Unit"] = self.control_data_unit(mech_data, default_cd)

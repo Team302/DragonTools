@@ -420,6 +420,7 @@ class MechanismEditorWindow(QMainWindow):
             if node_type == "item_hardware":
                 item_data = mech_data["hardware"][idx]
                 self.lbl_editor_title.setText(f"Hardware > {item_data['name']}")
+                self.current_mech_data = mech_data
                 self._current_hw_type = item_data.get("type")
                 self.render_dictionary_editor(item_data)
 
@@ -754,6 +755,8 @@ class MechanismEditorWindow(QMainWindow):
             return source == "RotorSensor"
         if "FollowerID" in dict_ref and key == "FollowerID":
             return not dict_ref.get("Enabled", False)
+        if "FollowerID" in dict_ref and key == "Invert":
+            return not dict_ref.get("Enabled", False)
         return False
 
     def _field_controls_graying(self, dict_ref, key):
@@ -810,6 +813,10 @@ class MechanismEditorWindow(QMainWindow):
                     self.current_mech_data, ["TalonFX", "TalonFXS", "SparkMax"]
                 ):
                     continue
+                if key == "motor_targets" and not self.model.has_controllable_motor(
+                    self.current_mech_data
+                ):
+                    continue
                 if key == "solenoid_targets" and not self.model.has_hardware_type(
                     self.current_mech_data, ["Solenoid"]
                 ):
@@ -846,6 +853,7 @@ class MechanismEditorWindow(QMainWindow):
                                 hw["name"]
                                 for hw in (self.current_mech_data or {}).get("hardware", [])
                                 if hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"]
+                                and not self.model.is_motor_follower(hw)
                             ]
 
                             fields = QHBoxLayout()
@@ -957,11 +965,14 @@ class MechanismEditorWindow(QMainWindow):
             elif isinstance(value, bool):
                 cb = QCheckBox()
                 cb.setChecked(value)
+                if key == "Enabled" and "FollowerID" in dict_ref:
+                    cb.setToolTip(
+                        "Spark MAX follower mode mirrors a CAN-enabled SPARK leader's voltage output."
+                    )
                 if self._field_controls_graying(dict_ref, key):
                     cb.stateChanged.connect(
-                        lambda state, k=key, d=dict_ref: (
-                            d.__setitem__(k, bool(state)),
-                            self.render_editor(),
+                        lambda state, k=key, d=dict_ref: self._on_follower_enabled_changed(
+                            d, k, bool(state)
                         )
                     )
                 else:
@@ -1026,6 +1037,18 @@ class MechanismEditorWindow(QMainWindow):
                     )
                 )
                 form.addRow(label_text, txt)
+
+    def _on_follower_enabled_changed(self, follower_config, key, enabled):
+        """Toggle follower mode and keep every state target list in sync."""
+        follower_config[key] = enabled
+        mech_data = self.current_mech_data
+        if mech_data:
+            for state in mech_data.get("states", []):
+                if isinstance(state, dict):
+                    self.model.sync_state_targets(state, mech_data)
+            self.populate_tree(select_data=self.current_selection)
+        else:
+            self.render_editor()
 
     def update_list_item(self, lst, index, value):
         if 0 <= index < len(lst):

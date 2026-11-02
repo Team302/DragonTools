@@ -20,7 +20,9 @@ class HardwareBuilder:
         template can gate the corresponding #include lines.
         """
         has_follower = any(
-            hw.get("config", {}).get("Follower", {}).get("Enabled") for hw in hardware
+            hw.get("type") in ("TalonFX", "TalonFXS")
+            and hw.get("config", {}).get("Follower", {}).get("Enabled")
+            for hw in hardware
         )
         return {
             "has_solenoid": any(hw.get("type") == "Solenoid" for hw in hardware),
@@ -290,6 +292,11 @@ class HardwareBuilder:
             lines.append(f"\tconfigs.OpenLoopRampRate({nm.cpp_num(cfg['OpenLoopRampRate'])});")
         if "ClosedLoopRampRate" in cfg:
             lines.append(f"\tconfigs.ClosedLoopRampRate({nm.cpp_num(cfg['ClosedLoopRampRate'])});")
+        follower = cfg.get("Follower", {})
+        if follower.get("Enabled", False):
+            leader_id = int(follower.get("FollowerID", 0))
+            invert = nm.cpp_bool(follower.get("Invert", False))
+            lines.append(f"\tconfigs.Follow({leader_id}, {invert});")
         closed_cd = control_data.get(closed_loop_cd_name) if closed_loop_cd_name else None
         if closed_cd:
             p = nm.cpp_num(closed_cd.get("p", 0.0))

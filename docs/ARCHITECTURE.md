@@ -124,6 +124,9 @@ Robots without this optional block do not generate camera definitions.
 The default `config` for each type is produced by
 [`gui/hardware_defaults.py`](../gui/hardware_defaults.py). TalonFX/TalonFXS use
 Phoenix 6 config fields; SparkMax uses REVLib SparkMaxConfig settings.
+SparkMax stores its REVLib CAN port as integer `canbus` (0–5). Its optional
+`config.Follower` block emits REVLib `Follow(leaderCanId, invert)` settings;
+REVLib follower mode mirrors a CAN-enabled SPARK leader's voltage output.
 
 ### Control-data dict
 

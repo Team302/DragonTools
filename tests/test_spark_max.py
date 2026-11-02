@@ -69,6 +69,42 @@ class SparkMaxGenerationTests(unittest.TestCase):
         self.assertIn("ControlType::kPosition", source)
         self.assertIn("GetEncoder().GetPosition().GetValue()", source)
 
+    def test_spark_max_follower_config_and_target_exclusion(self):
+        self.model.add_hardware(self.mechanism, "SparkMax")
+        self.mechanism["hardware"][0]["name"] = "leader"
+        self.mechanism["hardware"][0]["id"] = 1
+        self.model.add_hardware(self.mechanism, "SparkMax")
+        follower = self.mechanism["hardware"][1]
+        follower["name"] = "follower"
+        follower["id"] = 2
+        follower["config"]["Follower"].update(
+            {"Enabled": True, "FollowerID": 1, "Invert": True}
+        )
+        self.model.add_state(self.mechanism)
+
+        targets = self.mechanism["states"][0]["motor_targets"]
+        self.assertEqual([target["HardwareName"] for target in targets], ["leader"])
+        targets.append({
+            "HardwareName": "follower",
+            "Enabled": True,
+            "TargetValue": 0.5,
+            "ControlData": "PercentOut",
+            "Unit": "double",
+        })
+
+        self.generator.generate(self.model.project_data)
+        header = (self.generated_mechanism() / "Intake.h").read_text()
+        source = (self.generated_mechanism() / "Intake.cpp").read_text()
+        command = (
+            self.generated_mechanism() / "commands" / "IntakeNameCommand.cpp"
+        ).read_text()
+
+        self.assertIn("configs.Follow(1, true);", source)
+        self.assertIn("m_leaderActiveTarget", header)
+        self.assertNotIn("m_followerActiveTarget", header)
+        self.assertNotIn("UpdateTargetFollower", command)
+        self.assertNotIn("m_followerMotor->GetClosedLoopController()", source)
+
     def test_legacy_talon_srx_project_is_migrated_when_loaded(self):
         legacy = {
             "project_name": "legacy",
