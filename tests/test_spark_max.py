@@ -22,12 +22,18 @@ class SparkMaxGenerationTests(unittest.TestCase):
     def generated_mechanism(self):
         return Path(self.temp.name) / "src" / "main" / "cpp" / "mechanisms" / "intake"
 
+    def select_rev_control(self, control_data=None):
+        control_data = control_data or self.mechanism["control_data"][0]
+        control_data["ControlDevice"] = "REV"
+        control_data["ControlRequest"] = "kDutyCycle"
+
     def test_spark_max_defaults_create_motor_target(self):
         self.model.add_hardware(self.mechanism, "SparkMax")
         self.model.add_state(self.mechanism)
         hardware = self.mechanism["hardware"][0]
         state = self.mechanism["states"][0]
 
+        self.assertEqual(self.mechanism["control_data"][0]["ControlDevice"], "CTRE")
         self.assertEqual(hardware["canbus"], 0)
         self.assertIsInstance(hardware["canbus"], int)
         self.assertEqual(hardware["config"]["MotorType"], "kBrushless")
@@ -37,6 +43,7 @@ class SparkMaxGenerationTests(unittest.TestCase):
     def test_generation_uses_revlib_constructor_config_and_duty_cycle(self):
         self.model.add_hardware(self.mechanism, "SparkMax")
         self.mechanism["hardware"][0]["canbus"] = 5
+        self.select_rev_control()
         self.model.add_state(self.mechanism)
         self.generator.generate(self.model.project_data)
 
@@ -56,7 +63,7 @@ class SparkMaxGenerationTests(unittest.TestCase):
         self.model.add_hardware(self.mechanism, "SparkMax")
         self.model.add_control_data(self.mechanism)
         control_data = self.mechanism["control_data"][-1]
-        control_data.update({"name": "Position", "ControlRequest": "PositionVoltage", "Unit": "turn"})
+        control_data.update({"name": "Position", "ControlDevice": "REV", "ControlRequest": "kPosition", "Unit": "turn"})
         self.model.add_state(self.mechanism)
         target = self.mechanism["states"][0]["motor_targets"][0]
         target["ControlData"] = "Position"
@@ -71,6 +78,7 @@ class SparkMaxGenerationTests(unittest.TestCase):
 
     def test_spark_max_follower_config_and_target_exclusion(self):
         self.model.add_hardware(self.mechanism, "SparkMax")
+        self.select_rev_control()
         self.mechanism["hardware"][0]["name"] = "leader"
         self.mechanism["hardware"][0]["id"] = 1
         self.model.add_hardware(self.mechanism, "SparkMax")
@@ -104,6 +112,46 @@ class SparkMaxGenerationTests(unittest.TestCase):
         self.assertNotIn("m_followerActiveTarget", header)
         self.assertNotIn("UpdateTargetFollower", command)
         self.assertNotIn("m_followerMotor->GetClosedLoopController()", source)
+
+    def test_smart_motion_request_maps_to_current_revlib_enum(self):
+        self.model.add_hardware(self.mechanism, "SparkMax")
+        control_data = self.mechanism["control_data"][0]
+        control_data.update({
+            "ControlDevice": "REV",
+            "ControlRequest": "kSmartMotion",
+            "Unit": "turn",
+        })
+        control_data["cruise_velocity"] = 100.0
+        control_data["max_acceleration"] = 200.0
+        self.model.add_state(self.mechanism)
+        self.mechanism["states"][0]["motor_targets"][0].update({
+            "ControlData": control_data["name"],
+            "Unit": "turn",
+        })
+        self.generator.generate(self.model.project_data)
+
+        source = (self.generated_mechanism() / "Intake.cpp").read_text()
+        self.assertIn("ControlType::kMAXMotionPositionControl", source)
+        self.assertIn("configs.closedLoop.maxMotion.CruiseVelocity(100.0)", source)
+        self.assertIn("configs.closedLoop.maxMotion.MaxAcceleration(200.0)", source)
+
+    def test_control_device_must_match_motor_vendor(self):
+        self.model.add_hardware(self.mechanism, "SparkMax")
+        self.model.add_state(self.mechanism)
+
+        with self.assertRaisesRegex(ValueError, "selects CTRE.*requires REV"):
+            self.generator.generate(self.model.project_data)
+
+    def test_ctre_is_default_and_generates_phoenix_control(self):
+        self.model.add_hardware(self.mechanism, "TalonFX")
+        self.model.add_state(self.mechanism)
+        self.assertEqual(self.mechanism["control_data"][0]["ControlDevice"], "CTRE")
+        self.generator.generate(self.model.project_data)
+
+        header = (self.generated_mechanism() / "Intake.h").read_text()
+        source = (self.generated_mechanism() / "Intake.cpp").read_text()
+        self.assertIn("ctre::phoenix6::controls::DutyCycleOut", header)
+        self.assertIn("SetControl(*m_talonfx1ActiveTarget)", source)
 
     def test_legacy_talon_srx_project_is_migrated_when_loaded(self):
         legacy = {

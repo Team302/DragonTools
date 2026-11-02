@@ -66,18 +66,16 @@ SHORT_UNIT_SUFFIX = {
 MOTOR_TYPES = ("TalonFX", "TalonFXS", "SparkMax")
 
 # Control-request name fragments that indicate a closed-loop (PID slot) request.
-CLOSED_LOOP_KEYWORDS = ("Position", "Velocity", "MotionMagic")
+CLOSED_LOOP_KEYWORDS = ("Position", "Velocity", "MotionMagic", "SmartMotion", "MAXMotion")
 
-# Supported REVLib Spark MAX closed-loop/open-loop control modes.
+# REVLib Spark MAX request labels mapped to the current REVLib enum spellings.
 SPARK_MAX_CONTROL_TYPES = {
-    "DutyCycleOut": "kDutyCycle",
-    "VoltageOut": "kVoltage",
-    "PositionDutyCycle": "kPosition",
-    "PositionVoltage": "kPosition",
-    "VelocityDutyCycle": "kVelocity",
-    "VelocityVoltage": "kVelocity",
-    "MotionMagicDutyCycle": "kMAXMotionPositionControl",
-    "MotionMagicVoltage": "kMAXMotionPositionControl",
+    "kDutyCycle": "kDutyCycle",
+    "kVelocity": "kVelocity",
+    "kPosition": "kPosition",
+    # REVLib currently names this kMAXMotionPositionControl (not kSmartMotion).
+    "kSmartMotion": "kMAXMotionPositionControl",
+    "kVoltage": "kVoltage",
 }
 
 

@@ -135,6 +135,7 @@ A named bundle of a control request + PID/feedforward gains + a unit:
 ```python
 {
     "name": "IntakePercentOut",
+  "ControlDevice": "CTRE",       # CTRE | REV (defaults to CTRE)
     "ControlRequest": "DutyCycleOut",   # or PositionVoltage, MotionMagicVoltage, ...
     "Unit": "double",                   # double | turn | inch | deg | RPM | volt
     "p": 0.0, "i": 0.0, "d": 0.0, "f": 0.0,
@@ -144,6 +145,11 @@ A named bundle of a control request + PID/feedforward gains + a unit:
     "StaticFeedforwardSignValue": "UseVelocitySign",
 }
 ```
+
+CTRE requests use Phoenix 6 request names. REV requests use `kDutyCycle`,
+`kVelocity`, `kPosition`, `kSmartMotion`, or `kVoltage`; `kSmartMotion` is
+generated using REVLib's current `kMAXMotionPositionControl` enum. The selected
+control device must match the motor controller type.
 
 ### State dict
 

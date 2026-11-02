@@ -313,7 +313,7 @@ class HardwareBuilder:
                 lines.append(f"\tconfigs.closedLoop.feedForward.kA({nm.cpp_num(closed_cd['acceleration_gain'])});")
             if "f" in closed_cd:
                 lines.append(f"\tconfigs.closedLoop.feedForward.kG({nm.cpp_num(closed_cd['f'])});")
-            if "MotionMagic" in (closed_cd.get("ControlRequest") or ""):
+            if any(token in (closed_cd.get("ControlRequest") or "") for token in ("MotionMagic", "SmartMotion", "MAXMotion")):
                 cruise = nm.cpp_num(closed_cd.get("cruise_velocity", 0.0))
                 acceleration = nm.cpp_num(closed_cd.get("max_acceleration", 0.0))
                 lines.append(f"\tconfigs.closedLoop.maxMotion.CruiseVelocity({cruise});")

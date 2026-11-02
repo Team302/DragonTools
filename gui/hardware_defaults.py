@@ -30,6 +30,7 @@ def default_control_data():
     """Default control-data block."""
     return {
         "name": "ControlData",
+        "ControlDevice": "CTRE",
         "ControlRequest": "DutyCycleOut",
         "Unit": "double",
         "p": 0.0,

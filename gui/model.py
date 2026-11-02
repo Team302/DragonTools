@@ -58,6 +58,8 @@ class ProjectModel:
         """Convert saved Phoenix 5 TalonSRX entries to REVLib Spark MAX entries."""
         for robot in self.project_data.get("robots", {}).values():
             for mechanism in robot.get("mechanisms", {}).values():
+                for control_data in mechanism.get("control_data", []):
+                    control_data.setdefault("ControlDevice", "CTRE")
                 for hw in mechanism.get("hardware", []):
                     if hw.get("type") == "SparkMax":
                         if "canbus" not in hw:

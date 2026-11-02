@@ -37,12 +37,21 @@ class ControlDataBuilder:
                     continue
                 seen.add(key)
                 control_data = mech_info["control_data"].get(control_data_name, {})
+                control_device = control_data.get("ControlDevice", "CTRE")
+                hardware_type = hardware_types.get(hw_name, "TalonFX")
+                expected_device = "REV" if hardware_type == "SparkMax" else "CTRE"
+                if control_device != expected_device:
+                    raise ValueError(
+                        f"Control data {control_data_name} selects {control_device} but "
+                        f"hardware {hw_name} ({hardware_type}) requires {expected_device}"
+                    )
                 requests.append({
                     "hardware_name": hw_name,
                     "control_data_name": control_data_name,
                     "ControlRequest": control_data.get("ControlRequest", "ControlRequest"),
                     "Unit": control_data.get("Unit", "double"),
-                    "hardware_type": hardware_types.get(hw_name, "TalonFX"),
+                    "hardware_type": hardware_type,
+                    "ControlDevice": control_device,
                 })
         return requests
 
@@ -95,7 +104,7 @@ class ControlDataBuilder:
             target_name = nm.member_variable({"name": hw_name + cd_name, "type": "ControlData"})
             active_target_name = nm.member_variable({"name": hw_name, "type": "ControlData"}) + "ActiveTarget"
             param_type = nm.get_unit(req["Unit"])
-            param_name = self._param_name(req["ControlRequest"])
+            param_name = self._param_name(req["ControlRequest"], req.get("ControlDevice", "CTRE"))
             prop_name, use_slot = self._update_property(req["ControlRequest"])
             is_spark_max = req.get("hardware_type") == "SparkMax"
             target_expr = (
@@ -167,7 +176,7 @@ class ControlDataBuilder:
                                 if req["hardware_name"] == hw_name and req["control_data_name"] == cd_name), None)
                 update["is_spark_max"] = True
                 update["control_type"] = nm.SPARK_MAX_CONTROL_TYPES.get(
-                    request["ControlRequest"] if request else "DutyCycleOut"
+                    request["ControlRequest"] if request else "kDutyCycle"
                 )
                 if update["control_type"] is None:
                     raise ValueError(
@@ -178,7 +187,13 @@ class ControlDataBuilder:
             updates.append(update)
         return updates
 
-    def _param_name(self, control_request):
+    def _param_name(self, control_request, control_device="CTRE"):
+        if control_device == "REV":
+            if control_request in ("kPosition", "kSmartMotion"):
+                return "position"
+            if control_request == "kVelocity":
+                return "velocity"
+            return "setpoint"
         if "Position" in control_request:
             return "position"
         if "DutyCycle" in control_request or control_request.endswith("Out"):

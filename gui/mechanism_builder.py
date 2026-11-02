@@ -28,7 +28,14 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QDoubleValidator, QAction
 from generation import DragonCodeGenerator
 from .model import ProjectModel
-from .constants import VERSION, ENUM_FIELDS, UNIT_OPTIONS
+from .constants import (
+    VERSION,
+    ENUM_FIELDS,
+    UNIT_OPTIONS,
+    CONTROL_DEVICE_OPTIONS,
+    CTRE_CONTROL_REQUESTS,
+    REV_CONTROL_REQUESTS,
+)
 
 
 class AddRobotDialog(QDialog):
@@ -984,6 +991,38 @@ class MechanismEditorWindow(QMainWindow):
                 cb.setEnabled(not self._field_disabled(dict_ref, key))
                 form.addRow(label_text, cb)
 
+            elif key == "ControlDevice":
+                combo = QComboBox()
+                combo.addItems(CONTROL_DEVICE_OPTIONS)
+                combo.setCurrentText(str(value or "CTRE"))
+                combo.setStyleSheet(
+                    "QComboBox { background-color: #1E1E1E; border: 1px solid #555; "
+                    "color: white; padding: 3px; border-radius: 2px; }"
+                )
+                combo.currentTextChanged.connect(
+                    lambda text, d=dict_ref: self._on_control_device_changed(d, text)
+                )
+                form.addRow(label_text, combo)
+
+            elif key == "ControlRequest":
+                combo = QComboBox()
+                device = dict_ref.get("ControlDevice", "CTRE")
+                options = REV_CONTROL_REQUESTS if device == "REV" else CTRE_CONTROL_REQUESTS
+                combo.addItems(options)
+                current = str(value)
+                if current not in options:
+                    current = options[0]
+                    dict_ref[key] = current
+                combo.setCurrentText(current)
+                combo.setStyleSheet(
+                    "QComboBox { background-color: #1E1E1E; border: 1px solid #555; "
+                    "color: white; padding: 3px; border-radius: 2px; }"
+                )
+                combo.currentTextChanged.connect(
+                    lambda text, k=key, d=dict_ref: self.update_dict_and_tree(d, k, text)
+                )
+                form.addRow(label_text, combo)
+
             elif key in ENUM_FIELDS:
                 combo = QComboBox()
                 options = ENUM_FIELDS[key]
@@ -1037,6 +1076,12 @@ class MechanismEditorWindow(QMainWindow):
                     )
                 )
                 form.addRow(label_text, txt)
+
+    def _on_control_device_changed(self, control_data, device):
+        """Change the request family and select its corresponding open-loop default."""
+        control_data["ControlDevice"] = device
+        control_data["ControlRequest"] = "kDutyCycle" if device == "REV" else "DutyCycleOut"
+        self.render_editor()
 
     def _on_follower_enabled_changed(self, follower_config, key, enabled):
         """Toggle follower mode and keep every state target list in sync."""
