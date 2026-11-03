@@ -20,12 +20,18 @@ class HardwareBuilder:
         template can gate the corresponding #include lines.
         """
         has_follower = any(
-            hw.get("config", {}).get("Follower", {}).get("Enabled") for hw in hardware
+            hw.get("type") in ("TalonFX", "TalonFXS")
+            and hw.get("config", {}).get("Follower", {}).get("Enabled")
+            for hw in hardware
         )
         return {
             "has_solenoid": any(hw.get("type") == "Solenoid" for hw in hardware),
             "has_digital_input": any(hw.get("type") == "DigitalInput" for hw in hardware),
             "has_follower": has_follower,
+            "has_spark_max": any(hw.get("type") == "SparkMax" for hw in hardware),
+            "has_candi": any(hw.get("type") == "CANdi" for hw in hardware),
+            "has_talon_fxs": any(hw.get("type") == "TalonFXS" for hw in hardware),
+            "has_talon_fx": any(hw.get("type") == "TalonFX" for hw in hardware),
         }
 
     def solenoids(self, hardware):
@@ -109,6 +115,9 @@ class HardwareBuilder:
 
     def _build_motor_init_body(self, hw, closed_loop_cd_name, control_data):
         """Emit the TalonFX/TalonFXS configuration body from the JSON config block."""
+        if hw.get("type") == "SparkMax":
+            return self._build_spark_max_init_body(hw, closed_loop_cd_name, control_data)
+
         cfg = hw.get("config", {})
         hw_type = hw.get("type")
         is_fxs = hw_type == "TalonFXS"
@@ -262,6 +271,56 @@ class HardwareBuilder:
                 add(f"configs.Slot0.StaticFeedforwardSign = ctre::phoenix6::signals::StaticFeedforwardSignValue::{closed_cd['StaticFeedforwardSignValue']};")
 
         lines.extend(self._apply_block_lines(member, "configs"))
+        return lines
+
+    def _build_spark_max_init_body(self, hw, closed_loop_cd_name, control_data):
+        """Emit REVLib configuration calls for a Spark MAX."""
+        cfg = hw.get("config", {})
+        member = nm.member_variable(hw)
+        motor_type = cfg.get("MotorType", "kBrushless")
+        if motor_type not in ("kBrushed", "kBrushless"):
+            raise ValueError(f"Unsupported Spark MAX motor type: {motor_type}")
+        idle_mode = cfg.get("IdleMode", "kBrake")
+        if idle_mode not in ("kBrake", "kCoast"):
+            raise ValueError(f"Unsupported Spark MAX idle mode: {idle_mode}")
+        lines = ["\trev::spark::SparkMaxConfig configs{};"]
+        lines.append(f"\tconfigs.Inverted({nm.cpp_bool(cfg.get('Inverted', False))});")
+        lines.append(f"\tconfigs.SetIdleMode(rev::spark::SparkBaseConfig::IdleMode::{idle_mode});")
+        if "SmartCurrentLimit" in cfg:
+            lines.append(f"\tconfigs.SmartCurrentLimit({int(cfg['SmartCurrentLimit'])});")
+        if "OpenLoopRampRate" in cfg:
+            lines.append(f"\tconfigs.OpenLoopRampRate({nm.cpp_num(cfg['OpenLoopRampRate'])});")
+        if "ClosedLoopRampRate" in cfg:
+            lines.append(f"\tconfigs.ClosedLoopRampRate({nm.cpp_num(cfg['ClosedLoopRampRate'])});")
+        follower = cfg.get("Follower", {})
+        if follower.get("Enabled", False):
+            leader_id = int(follower.get("FollowerID", 0))
+            invert = nm.cpp_bool(follower.get("Invert", False))
+            lines.append(f"\tconfigs.Follow({leader_id}, {invert});")
+        closed_cd = control_data.get(closed_loop_cd_name) if closed_loop_cd_name else None
+        if closed_cd:
+            p = nm.cpp_num(closed_cd.get("p", 0.0))
+            i = nm.cpp_num(closed_cd.get("i", 0.0))
+            d = nm.cpp_num(closed_cd.get("d", 0.0))
+            lines.append(f"\tconfigs.closedLoop.Pid({p}, {i}, {d});")
+            if "integral_zone" in closed_cd:
+                lines.append(f"\tconfigs.closedLoop.IZone({nm.cpp_num(closed_cd['integral_zone'])});")
+            if "static_friction_gain" in closed_cd:
+                lines.append(f"\tconfigs.closedLoop.feedForward.kS({nm.cpp_num(closed_cd['static_friction_gain'])});")
+            if "velocity_gain" in closed_cd:
+                lines.append(f"\tconfigs.closedLoop.feedForward.kV({nm.cpp_num(closed_cd['velocity_gain'])});")
+            if "acceleration_gain" in closed_cd:
+                lines.append(f"\tconfigs.closedLoop.feedForward.kA({nm.cpp_num(closed_cd['acceleration_gain'])});")
+            if "f" in closed_cd:
+                lines.append(f"\tconfigs.closedLoop.feedForward.kG({nm.cpp_num(closed_cd['f'])});")
+            if any(token in (closed_cd.get("ControlRequest") or "") for token in ("MotionMagic", "SmartMotion", "MAXMotion")):
+                cruise = nm.cpp_num(closed_cd.get("cruise_velocity", 0.0))
+                acceleration = nm.cpp_num(closed_cd.get("max_acceleration", 0.0))
+                lines.append(f"\tconfigs.closedLoop.maxMotion.CruiseVelocity({cruise});")
+                lines.append(f"\tconfigs.closedLoop.maxMotion.MaxAcceleration({acceleration});")
+        lines.append(
+            f"\t{member}->Configure(configs, rev::ResetMode::kResetSafeParameters, rev::PersistMode::kPersistParameters);"
+        )
         return lines
 
     def _build_candi_init_body(self, hw):

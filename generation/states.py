@@ -75,9 +75,14 @@ class StateBuilder:
                 "hardware_name": hw_name,
                 "target_path_member": f"m_logging{hw_pascal}TargetPath",
                 "target_path": f"/{mech_pascal}/{hw_pascal}MotorTarget",
-                "target_value_expr": f"{request_member}.{value_prop}.value()",
+                "target_value_expr": (
+                    request_member if hw.get("type") == "SparkMax"
+                    else f"{request_member}.{value_prop}.value()"
+                ),
                 "control_request_member": f"m_logging{hw_pascal}ControlRequest",
                 "control_request_path": f"/{mech_pascal}/{hw_pascal}ControlRequest",
+                "control_request_name": control_request,
+                "is_spark_max": hw.get("type") == "SparkMax",
                 "active_target_var": active_target_var,
                 "closed_loop": nm.is_closed_loop(control_request),
             }
@@ -93,8 +98,12 @@ class StateBuilder:
                 entry["cached_value_expr"] = f"{cached_var}.value()"
                 cached_values.append({
                     "var": cached_var,
-                    "type": nm.get_unit(unit),
-                    "getter": f"{motor_var}->{getter}().GetValue()",
+                    "type": "double" if hw.get("type") == "SparkMax" else nm.get_unit(unit),
+                    "getter": (
+                        f"{motor_var}->GetEncoder().Get{'Velocity' if is_velocity else 'Position'}().GetValue()"
+                        if hw.get("type") == "SparkMax"
+                        else f"{motor_var}->{getter}().GetValue()"
+                    ),
                 })
 
             logging_motors.append(entry)

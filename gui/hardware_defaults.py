@@ -7,7 +7,7 @@ model dependencies.
 
 
 def default_motor_target(hw_name=""):
-    """Default state target for a TalonFX / TalonFXS motor."""
+    """Default state target for a supported motor controller."""
     return {
         "HardwareName": hw_name,
         "Enabled": True,
@@ -30,6 +30,7 @@ def default_control_data():
     """Default control-data block."""
     return {
         "name": "ControlData",
+        "ControlDevice": "CTRE",
         "ControlRequest": "DutyCycleOut",
         "Unit": "double",
         "p": 0.0,
@@ -62,7 +63,11 @@ def default_percent_out_control_data():
 
 def default_hardware(hw_type, name):
     """Build the default config dictionary for a piece of hardware."""
-    new_hw = {"type": hw_type, "name": name, "id": 0, "bus": "canivore"}
+    new_hw = {"type": hw_type, "name": name, "id": 0}
+    if hw_type == "SparkMax":
+        new_hw["canbus"] = 0
+    else:
+        new_hw["bus"] = "canivore"
 
     if hw_type in ["TalonFX", "TalonFXS"]:
         new_hw.update(
@@ -134,6 +139,20 @@ def default_hardware(hw_type, name):
             new_hw["config"]["Commutation"] = {
                 "MotorArrangementValue": "Minion_JST",
             }
+    elif hw_type == "SparkMax":
+        new_hw["config"] = {
+            "MotorType": "kBrushless",
+            "Inverted": False,
+            "IdleMode": "kBrake",
+            "SmartCurrentLimit": 40,
+            "OpenLoopRampRate": 0.1,
+            "ClosedLoopRampRate": 0.25,
+            "Follower": {
+                "Enabled": False,
+                "FollowerID": 0,
+                "Invert": False,
+            },
+        }
     elif hw_type == "CANCoder":
         new_hw.update(
             {

@@ -13,11 +13,29 @@ VERSION = "2026.1.0"
 # motor-target unit picker).
 UNIT_OPTIONS = ["double", "turn", "inch", "deg", "RPM", "volt"]
 
+CONTROL_DEVICE_OPTIONS = ["CTRE", "REV"]
+CTRE_CONTROL_REQUESTS = [
+    "DifferentialDutyCycle", "DifferentialMotionMagicExpoDutyCycle", "DutyCycleOut",
+    "DynamicMotionMagicDutyCycle", "DynamicMotionMagicExpoDutyCycle",
+    "DynamicMotionMagicExpoTorqueCurrentFOC", "DynamicMotionMagicExpoVoltage",
+    "DynamicMotionMagicTorqueCurrentFOC", "DynamicMotionMagicVoltage",
+    "MotionMagicDutyCycle", "MotionMagicExpoDutyCycle", "MotionMagicExpoTorqueCurrentFOC",
+    "MotionMagicExpoVoltage", "MotionMagicTorqueCurrentFOC", "MotionMagicVelocityDutyCycle",
+    "MotionMagicVelocityTorqueCurrentFOC", "MotionMagicVelocityVoltage", "MotionMagicVoltage",
+    "PositionDutyCycle", "PositionTorqueCurrentFOC", "PositionVoltage", "TorqueCurrentFOC",
+    "VelocityDutyCycle", "VelocityTorqueCurrentFOC", "VelocityVoltage", "VoltageOut",
+]
+REV_CONTROL_REQUESTS = [
+    "kDutyCycle", "kVelocity", "kPosition", "kSmartMotion", "kVoltage",
+]
+
 # --- ENUM FIELD MAPPINGS ---
 # Maps field names to their allowed enum values from CTRE Phoenix6 library
 ENUM_FIELDS = {
     # Motor bridge neutral mode
     "NeutralModeValue": ["Coast", "Brake"],
+    "IdleMode": ["kCoast", "kBrake"],
+    "MotorType": ["kBrushed", "kBrushless"],
 
     # Motor inversion
     "InvertedValue": ["CounterClockwise_Positive", "Clockwise_Positive"],
@@ -66,14 +84,6 @@ ENUM_FIELDS = {
                        "CloseWhenHigh", "CloseWhenLow", "CloseWhenFloating"],
     "S2CloseStateValue": ["CloseWhenNotHigh", "CloseWhenNotLow", "CloseWhenNotFloating",
                        "CloseWhenHigh", "CloseWhenLow", "CloseWhenFloating"],
-
-    # Control Request
-    "ControlRequest": ["DifferentialDutyCycle", "DifferentialMotionMagicExpoDutyCycle",  "DutyCycleOut", "DynamicMotionMagicDutyCycle", "DynamicMotionMagicExpoDutyCycle",
-                         "DynamicMotionMagicExpoTorqueCurrentFOC", "DynamicMotionMagicExpoVoltage", "DynamicMotionMagicTorqueCurrentFOC", "DynamicMotionMagicVoltage",
-                        "MotionMagicDutyCycle", "MotionMagicExpoDutyCycle", "MotionMagicExpoTorqueCurrentFOC", "MotionMagicExpoVoltage", "MotionMagicTorqueCurrentFOC",
-                       "MotionMagicVelocityDutyCycle", "MotionMagicVelocityTorqueCurrentFOC", "MotionMagicVelocityVoltage", "MotionMagicVoltage",
-                       "PositionDutyCycle", "PositionTorqueCurrentFOC", "PositionVoltage",  "TorqueCurrentFOC", "VelocityDutyCycle",
-                         "VelocityTorqueCurrentFOC", "VelocityVoltage", "VoltageOut"],
 
     # CANCoder Magnet Sensor Configs
     "SensorDirection": ["CounterClockwise_Positive", "Clockwise_Positive"],

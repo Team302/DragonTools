@@ -13,6 +13,16 @@ class ControlDataBuilder:
 
     def hardware_control_requests(self, mech_info):
         """One entry per unique (motor, control-data) pair referenced by states."""
+        hardware_types = {
+            name: hw_type
+            for (name, hw_type) in mech_info.get("hardware", {})
+            if hw_type in nm.MOTOR_TYPES
+        }
+        follower_names = {
+            name
+            for (name, _hw_type), hw in mech_info.get("hardware", {}).items()
+            if hw.get("config", {}).get("Follower", {}).get("Enabled", False)
+        }
         requests = []
         seen = set()
         for state_name in mech_info.get("states", []):
@@ -20,35 +30,53 @@ class ControlDataBuilder:
             for motor_target in state.get("motor_targets", []):
                 hw_name = motor_target.get("HardwareName") or motor_target.get("hardware_name")
                 control_data_name = motor_target.get("ControlData")
-                if not hw_name or not control_data_name:
+                if not hw_name or not control_data_name or hw_name in follower_names:
                     continue
                 key = (hw_name, control_data_name)
                 if key in seen:
                     continue
                 seen.add(key)
                 control_data = mech_info["control_data"].get(control_data_name, {})
+                control_device = control_data.get("ControlDevice", "CTRE")
+                hardware_type = hardware_types.get(hw_name, "TalonFX")
+                expected_device = "REV" if hardware_type == "SparkMax" else "CTRE"
+                if control_device != expected_device:
+                    raise ValueError(
+                        f"Control data {control_data_name} selects {control_device} but "
+                        f"hardware {hw_name} ({hardware_type}) requires {expected_device}"
+                    )
                 requests.append({
                     "hardware_name": hw_name,
                     "control_data_name": control_data_name,
                     "ControlRequest": control_data.get("ControlRequest", "ControlRequest"),
                     "Unit": control_data.get("Unit", "double"),
+                    "hardware_type": hardware_type,
+                    "ControlDevice": control_device,
                 })
         return requests
 
     def hardware_active_targets(self, mech_info, control_requests):
         """Map each motor to the control data it activates first (its default target)."""
+        follower_names = {
+            name
+            for (name, _hw_type), hw in mech_info.get("hardware", {}).items()
+            if hw.get("config", {}).get("Follower", {}).get("Enabled", False)
+        }
         active = {}
         for state_name in mech_info.get("states", []):
             state = mech_info["state_details"].get(state_name, {})
             for motor_target in state.get("motor_targets", []):
                 hw_name = motor_target.get("HardwareName") or motor_target.get("hardware_name")
                 control_data_name = motor_target.get("ControlData")
-                if not hw_name or not control_data_name:
+                if not hw_name or not control_data_name or hw_name in follower_names:
                     continue
                 if hw_name not in active:
                     active[hw_name] = control_data_name
 
         for hw_name, _hw_type in mech_info.get("hardware", {}).keys():
+            if hw_name in follower_names:
+                active[hw_name] = ""
+                continue
             if hw_name not in active:
                 first_request = next(
                     (req for req in control_requests if req["hardware_name"] == hw_name),
@@ -76,9 +104,14 @@ class ControlDataBuilder:
             target_name = nm.member_variable({"name": hw_name + cd_name, "type": "ControlData"})
             active_target_name = nm.member_variable({"name": hw_name, "type": "ControlData"}) + "ActiveTarget"
             param_type = nm.get_unit(req["Unit"])
-            param_name = self._param_name(req["ControlRequest"])
+            param_name = self._param_name(req["ControlRequest"], req.get("ControlDevice", "CTRE"))
             prop_name, use_slot = self._update_property(req["ControlRequest"])
-            target_expr = f"&{target_name}.WithSlot(0)" if use_slot else f"&{target_name}"
+            is_spark_max = req.get("hardware_type") == "SparkMax"
+            target_expr = (
+                f"&{target_name}"
+                if is_spark_max
+                else f"&{target_name}.WithSlot(0)" if use_slot else f"&{target_name}"
+            )
 
             methods.append({
                 "name": f"UpdateTarget{nm.pascal_case(hw_name)}{nm.pascal_case(cd_name)}",
@@ -88,6 +121,8 @@ class ControlDataBuilder:
                 "prop_name": prop_name,
                 "target_expr": target_expr,
                 "active_target_name": active_target_name,
+                "is_spark_max": is_spark_max,
+                "assignment_expr": f"{param_name}.value()" if is_spark_max and req["Unit"] != "double" else param_name,
             })
         return methods
 
@@ -98,19 +133,24 @@ class ControlDataBuilder:
         only ever run open-loop are absent from the result and get no Slot0.
         """
         result = {}
+        follower_names = {
+            name
+            for (name, _hw_type), hw in mech_info.get("hardware", {}).items()
+            if hw.get("config", {}).get("Follower", {}).get("Enabled", False)
+        }
         for state_name in mech_info.get("states", []):
             state = mech_info["state_details"].get(state_name, {})
             for mt in state.get("motor_targets", []):
                 hw_name = mt.get("HardwareName") or mt.get("hardware_name")
                 cd_name = mt.get("ControlData")
-                if not hw_name or not cd_name or hw_name in result:
+                if not hw_name or not cd_name or hw_name in result or hw_name in follower_names:
                     continue
                 cd = mech_info["control_data"].get(cd_name, {})
                 if nm.is_closed_loop(cd.get("ControlRequest")):
                     result[hw_name] = cd_name
         return result
 
-    def motor_updates(self, hardware, hardware_active_targets):
+    def motor_updates(self, hardware, hardware_active_targets, control_requests):
         """Build the per-loop Update() statements that push motor active targets.
 
         Motors get "<member>->SetControl(*<activeTarget>);". Only motors that
@@ -123,14 +163,37 @@ class ControlDataBuilder:
             hw_type = hw.get("type", "")
             if hw_type not in nm.MOTOR_TYPES:
                 continue
+            if hw.get("config", {}).get("Follower", {}).get("Enabled", False):
+                continue
             if not hardware_active_targets.get(hw_name):
                 continue
             hardware_var = nm.member_variable(hw)
             active_target_var = nm.member_variable({"name": hw_name, "type": "ControlData"}) + "ActiveTarget"
-            updates.append({"hardware_var": hardware_var, "active_target_var": active_target_var})
+            update = {"hardware_var": hardware_var, "active_target_var": active_target_var}
+            if hw_type == "SparkMax":
+                cd_name = hardware_active_targets.get(hw_name, "")
+                request = next((req for req in control_requests
+                                if req["hardware_name"] == hw_name and req["control_data_name"] == cd_name), None)
+                update["is_spark_max"] = True
+                update["control_type"] = nm.SPARK_MAX_CONTROL_TYPES.get(
+                    request["ControlRequest"] if request else "kDutyCycle"
+                )
+                if update["control_type"] is None:
+                    raise ValueError(
+                        f"Control request {request['ControlRequest']} is not supported by Spark MAX {hw_name}"
+                    )
+            else:
+                update["is_spark_max"] = False
+            updates.append(update)
         return updates
 
-    def _param_name(self, control_request):
+    def _param_name(self, control_request, control_device="CTRE"):
+        if control_device == "REV":
+            if control_request in ("kPosition", "kSmartMotion"):
+                return "position"
+            if control_request == "kVelocity":
+                return "velocity"
+            return "setpoint"
         if "Position" in control_request:
             return "position"
         if "DutyCycle" in control_request or control_request.endswith("Out"):

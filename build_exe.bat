@@ -42,6 +42,7 @@ REM Auton DTDs/files are read from the user-selected season folder at runtime,
 REM so nothing auton-specific needs to be bundled.
 pyinstaller --noconfirm --clean --onefile --windowed ^
     --name DragonTools ^
+    --icon "assets\dragon_302.ico" ^
     --add-data "templates;templates" ^
     --add-data "assets;assets" ^
     main.py || goto :error

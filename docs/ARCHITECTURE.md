@@ -31,6 +31,8 @@ dictionary** (`project_data`).
 > window (`gui/suite.py`) so it can host many tools over time. The Mechanism
 > Generator described here is the first tab; the second tab (**Auton Builder**) is
 > currently a blank placeholder. See [§3.0](#30-the-suite-shell-guisuitepy).
+> The third tab, **Camera Creator**, shares the Mechanism Generator's
+> `ProjectModel` and stores camera settings per robot.
 
 ---
 
@@ -58,11 +60,60 @@ project_data = {
 }
 ```
 
+### Camera configuration
+
+An optional `camera_config` object lives alongside each robot's `mechanisms`:
+
+```python
+"camera_config": {
+    "robot_length_in": 30.0,
+    "robot_width_in": 30.0,
+    "length_unit": "in",       # fallback length unit for fields without a choice
+    "angle_unit": "deg",       # fallback angle unit for fields without a choice
+    "dimension_units": {"robot_length_in": "in", "robot_width_in": "m"},
+    "cameras": [
+        {
+            "type": "Limelight", "name": "limelight-left",
+            "x": -10.7354, "y": -10.3104, "z": 9.39,
+            "units": {"x": "in", "z": "m", "yaw": "rad"},   # optional, per field
+            "pitch": 5.0, "yaw": -150.0, "roll": 0.0,
+            "identifier": "BACK_LEFT", "camera_type": "LIMELIGHT4",
+            "usage": "APRIL_TAGS", "pipeline": "APRIL_TAG", "led_mode": "LED_OFF",
+        },
+    ],
+}
+```
+
+Quest entries have `type`, `name` and the six pose fields, without the
+Limelight-specific options. Lengths are always stored in inches and angles in
+degrees regardless of display preferences. Axes are forward/left/up; orientation
+is WPILib roll/pitch/yaw. Dimensions describe the robot footprint, not its height.
+
+[`generation/cameras.py`](../generation/cameras.py) owns defaults, supported
+robot-API enum options and validation. [`gui/camera_creator.py`](../gui/camera_creator.py)
+edits the shared dictionary and handles unit conversion.
+[`gui/camera_preview.py`](../gui/camera_preview.py) renders the orbitable 3D view
+using Qt's painter, with no extra rendering dependency. Refreshing the tab
+re-queries the model, so robot additions, removals, project loads and new projects
+cannot leave stale robot references.
+
+`DragonCodeGenerator.generate_camera_configs()` renders the `CameraConfig*`
+templates; the full `generate()` also invokes it. Configured robots get a
+`CameraConfig_<TEAM_NUMBER>` class and a shared `CameraConfigMgr` mapping.
+The templates reuse the shared `short_unit` filter to emit `_in` / `_m` and
+`_deg` / `_rad` literals matching each field's selected unit (`field_unit()`).
+Canonical stored
+values are converted only when assembling the render data, without modifying
+the project. The C++ unit library handles compatible constructor parameter types;
+the generated calls contain no explicit unit conversion or type wrappers.
+Validation happens before writing files.
+Robots without this optional block do not generate camera definitions.
+
 ### Hardware dict
 
 ```python
 {
-    "type": "TalonFX",          # TalonFX | TalonFXS | CANCoder | CANdi | Solenoid | DigitalInput
+    "type": "TalonFX",          # TalonFX | TalonFXS | SparkMax | CANCoder | CANdi | Solenoid | DigitalInput
     "name": "intake",           # logical device name
     "id": 0,                    # CAN id
     "bus": "canivore",
@@ -71,7 +122,11 @@ project_data = {
 ```
 
 The default `config` for each type is produced by
-[`gui/hardware_defaults.py`](../gui/hardware_defaults.py).
+[`gui/hardware_defaults.py`](../gui/hardware_defaults.py). TalonFX/TalonFXS use
+Phoenix 6 config fields; SparkMax uses REVLib SparkMaxConfig settings.
+SparkMax stores its REVLib CAN port as integer `canbus` (0–5). Its optional
+`config.Follower` block emits REVLib `Follow(leaderCanId, invert)` settings;
+REVLib follower mode mirrors a CAN-enabled SPARK leader's voltage output.
 
 ### Control-data dict
 
@@ -80,6 +135,7 @@ A named bundle of a control request + PID/feedforward gains + a unit:
 ```python
 {
     "name": "IntakePercentOut",
+  "ControlDevice": "CTRE",       # CTRE | REV (defaults to CTRE)
     "ControlRequest": "DutyCycleOut",   # or PositionVoltage, MotionMagicVoltage, ...
     "Unit": "double",                   # double | turn | inch | deg | RPM | volt
     "p": 0.0, "i": 0.0, "d": 0.0, "f": 0.0,
@@ -89,6 +145,11 @@ A named bundle of a control request + PID/feedforward gains + a unit:
     "StaticFeedforwardSignValue": "UseVelocitySign",
 }
 ```
+
+CTRE requests use Phoenix 6 request names. REV requests use `kDutyCycle`,
+`kVelocity`, `kPosition`, `kSmartMotion`, or `kVoltage`; `kSmartMotion` is
+generated using REVLib's current `kMAXMotionPositionControl` enum. The selected
+control device must match the motor controller type.
 
 ### State dict
 

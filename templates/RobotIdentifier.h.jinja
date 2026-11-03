@@ -1,6 +1,6 @@
 
 //====================================================================================================================================================
-// Copyright 2026 Lake Orion Robotics FIRST Team 302
+// Copyright {{year}} Lake Orion Robotics FIRST Team 302
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
 // to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
@@ -20,11 +20,20 @@
 
 enum class RobotIdentifier
 {
+	{%- set robot_names = robots | map(attribute="robot_name") | list %}
+	{%- if "CHASSIS_BOT_9999" not in robot_names %}
 	CHASSIS_BOT_9999 = 9999,
+	{%- endif %}
+	{%- if "CHASSIS_BOT_9998" not in robot_names %}
 	CHASSIS_BOT_9998 = 9998,
+	{%- endif %}
+	{%- if "CHASSIS_BOT_9997" not in robot_names %}
 	CHASSIS_BOT_9997 = 9997,
+	{%- endif %}
 	{%- for robot in robots %}
 	{{ robot.robot_name | upper }} = {{ robot.team_number }},
     {%- endfor %}   
+	{%- if "SIM_BOT_0" not in robot_names %}
 	SIM_BOT_0 = 0,
+	{%- endif %}
 };

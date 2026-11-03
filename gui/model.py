@@ -51,7 +51,37 @@ class ProjectModel:
     def load_project(self, path):
         with open(path, "r") as f:
             self.project_data = json.load(f)
+        self._migrate_legacy_srx_hardware()
         self.current_project_path = path
+
+    def _migrate_legacy_srx_hardware(self):
+        """Convert saved Phoenix 5 TalonSRX entries to REVLib Spark MAX entries."""
+        for robot in self.project_data.get("robots", {}).values():
+            for mechanism in robot.get("mechanisms", {}).values():
+                for control_data in mechanism.get("control_data", []):
+                    control_data.setdefault("ControlDevice", "CTRE")
+                for hw in mechanism.get("hardware", []):
+                    if hw.get("type") == "SparkMax":
+                        if "canbus" not in hw:
+                            hw["canbus"] = 0
+                        hw.pop("bus", None)
+                    if hw.get("type") != "TalonSRX":
+                        continue
+                    old_config = hw.get("config", {})
+                    hw["type"] = "SparkMax"
+                    hw["canbus"] = 0
+                    hw.pop("bus", None)
+                    hw["config"] = {
+                        "MotorType": "kBrushless",
+                        "Inverted": bool(old_config.get("Inverted", False)),
+                        "IdleMode": "kBrake" if old_config.get("NeutralModeValue", "Brake") == "Brake" else "kCoast",
+                        "SmartCurrentLimit": max(
+                            1,
+                            int(old_config.get("ContinuousCurrentLimit", 40) or 40),
+                        ),
+                        "OpenLoopRampRate": old_config.get("OpenLoopRamp", 0.1),
+                        "ClosedLoopRampRate": old_config.get("ClosedLoopRamp", 0.25),
+                    }
 
     def save_project(self, path):
         with open(path, "w") as f:
@@ -98,7 +128,7 @@ class ProjectModel:
 
                 for st in mech.get("states", []):
                     if isinstance(st, dict):
-                        if hw_type in ["TalonFX", "TalonFXS"] and "motor_targets" in st:
+                        if hw_type in ["TalonFX", "TalonFXS", "SparkMax"] and "motor_targets" in st:
                             st["motor_targets"] = [
                                 mt for mt in st.get("motor_targets", []) if mt.get("HardwareName") != hw_name
                             ]
@@ -131,6 +161,18 @@ class ProjectModel:
             for hw in mech_data.get("hardware", [])
         )
 
+    @staticmethod
+    def is_motor_follower(hw):
+        """Whether a motor's config marks it as a follower."""
+        return bool(hw.get("config", {}).get("Follower", {}).get("Enabled", False))
+
+    def has_controllable_motor(self, mech_data):
+        return bool(mech_data) and any(
+            hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"]
+            and not self.is_motor_follower(hw)
+            for hw in mech_data.get("hardware", [])
+        )
+
     def find_mech_location(self, mech_data):
         """Return (robot_id, mech_name) for the given mech_data reference, or (None, None)."""
         for robot_id, robot_data in self.project_data["robots"].items():
@@ -156,7 +198,8 @@ class ProjectModel:
                 motors = [
                     hw["name"]
                     for hw in mech_data.get("hardware", [])
-                    if hw.get("type") in ["TalonFX", "TalonFXS"]
+                    if hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"]
+                    and not self.is_motor_follower(hw)
                 ]
                 if motors:
                     hw_name = motors[0]
@@ -183,7 +226,8 @@ class ProjectModel:
         motors = [
             hw["name"]
             for hw in mech_data.get("hardware", [])
-            if hw.get("type") in ["TalonFX", "TalonFXS"]
+            if hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"]
+            and not self.is_motor_follower(hw)
         ]
         solenoids = [
             hw["name"]
@@ -240,7 +284,7 @@ class ProjectModel:
         default_cd = self.default_control_data_name(mech_data)
         for st in mech_data.get("states", []):
             if isinstance(st, dict):
-                if hw_type in ["TalonFX", "TalonFXS"]:
+                if hw_type in ["TalonFX", "TalonFXS", "SparkMax"] and not self.is_motor_follower(new_hw):
                     if "motor_targets" not in st:
                         st["motor_targets"] = []
                     if not any(mt.get("HardwareName") == hw_name for mt in st["motor_targets"]):
@@ -276,7 +320,7 @@ class ProjectModel:
         default_cd = self.default_control_data_name(mech_data)
         motor_targets = []
         for hw in mech_data.get("hardware", []):
-            if hw.get("type") in ["TalonFX", "TalonFXS"]:
+            if hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"] and not self.is_motor_follower(hw):
                 mt = hwd.default_motor_target(hw["name"])
                 mt["ControlData"] = default_cd
                 mt["Unit"] = self.control_data_unit(mech_data, default_cd)

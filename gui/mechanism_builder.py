@@ -28,7 +28,14 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QDoubleValidator, QAction
 from generation import DragonCodeGenerator
 from .model import ProjectModel
-from .constants import VERSION, ENUM_FIELDS, UNIT_OPTIONS
+from .constants import (
+    VERSION,
+    ENUM_FIELDS,
+    UNIT_OPTIONS,
+    CONTROL_DEVICE_OPTIONS,
+    CTRE_CONTROL_REQUESTS,
+    REV_CONTROL_REQUESTS,
+)
 
 
 class AddRobotDialog(QDialog):
@@ -420,6 +427,7 @@ class MechanismEditorWindow(QMainWindow):
             if node_type == "item_hardware":
                 item_data = mech_data["hardware"][idx]
                 self.lbl_editor_title.setText(f"Hardware > {item_data['name']}")
+                self.current_mech_data = mech_data
                 self._current_hw_type = item_data.get("type")
                 self.render_dictionary_editor(item_data)
 
@@ -456,6 +464,7 @@ class MechanismEditorWindow(QMainWindow):
         hw_btns = QHBoxLayout()
         btn_talon_fx = QPushButton("+ TalonFX")
         btn_talon_fxs = QPushButton("+ TalonFXS")
+        btn_spark_max = QPushButton("+ Spark MAX")
         btn_coder = QPushButton("+ CANCoder")
         btn_candi = QPushButton("+ CANdi")
         btn_solenoid = QPushButton("+ Solenoid")
@@ -463,6 +472,7 @@ class MechanismEditorWindow(QMainWindow):
 
         btn_talon_fx.clicked.connect(lambda: self.add_hardware(mech_data, "TalonFX"))
         btn_talon_fxs.clicked.connect(lambda: self.add_hardware(mech_data, "TalonFXS"))
+        btn_spark_max.clicked.connect(lambda: self.add_hardware(mech_data, "SparkMax"))
         btn_coder.clicked.connect(lambda: self.add_hardware(mech_data, "CANCoder"))
         btn_candi.clicked.connect(lambda: self.add_hardware(mech_data, "CANdi"))
         btn_solenoid.clicked.connect(lambda: self.add_hardware(mech_data, "Solenoid"))
@@ -470,6 +480,7 @@ class MechanismEditorWindow(QMainWindow):
 
         hw_btns.addWidget(btn_talon_fx)
         hw_btns.addWidget(btn_talon_fxs)
+        hw_btns.addWidget(btn_spark_max)
         hw_btns.addWidget(btn_coder)
         hw_btns.addWidget(btn_candi)
         hw_btns.addWidget(btn_solenoid)
@@ -751,6 +762,8 @@ class MechanismEditorWindow(QMainWindow):
             return source == "RotorSensor"
         if "FollowerID" in dict_ref and key == "FollowerID":
             return not dict_ref.get("Enabled", False)
+        if "FollowerID" in dict_ref and key == "Invert":
+            return not dict_ref.get("Enabled", False)
         return False
 
     def _field_controls_graying(self, dict_ref, key):
@@ -776,6 +789,22 @@ class MechanismEditorWindow(QMainWindow):
                 continue
 
             label_text = self.prettify_label(key) + ":"
+            if key == "canbus":
+                label_text = "CAN Bus ID:"
+
+            if key == "canbus" and hw_type == "SparkMax":
+                combo = QComboBox()
+                combo.addItems([str(bus_id) for bus_id in range(6)])
+                combo.setCurrentText(str(value))
+                combo.setStyleSheet(
+                    "QComboBox { background-color: #1E1E1E; border: 1px solid #555; "
+                    "color: white; padding: 3px; border-radius: 2px; }"
+                )
+                combo.currentTextChanged.connect(
+                    lambda text, k=key, d=dict_ref: d.__setitem__(k, int(text))
+                )
+                form.addRow(label_text, combo)
+                continue
 
             if isinstance(value, dict):
                 nested_frame = QFrame()
@@ -788,7 +817,11 @@ class MechanismEditorWindow(QMainWindow):
 
             elif isinstance(value, list):
                 if key == "motor_targets" and not self.model.has_hardware_type(
-                    self.current_mech_data, ["TalonFX", "TalonFXS"]
+                    self.current_mech_data, ["TalonFX", "TalonFXS", "SparkMax"]
+                ):
+                    continue
+                if key == "motor_targets" and not self.model.has_controllable_motor(
+                    self.current_mech_data
                 ):
                     continue
                 if key == "solenoid_targets" and not self.model.has_hardware_type(
@@ -826,7 +859,8 @@ class MechanismEditorWindow(QMainWindow):
                             hw_options = [
                                 hw["name"]
                                 for hw in (self.current_mech_data or {}).get("hardware", [])
-                                if hw.get("type") in ["TalonFX", "TalonFXS"]
+                                if hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"]
+                                and not self.model.is_motor_follower(hw)
                             ]
 
                             fields = QHBoxLayout()
@@ -938,11 +972,14 @@ class MechanismEditorWindow(QMainWindow):
             elif isinstance(value, bool):
                 cb = QCheckBox()
                 cb.setChecked(value)
+                if key == "Enabled" and "FollowerID" in dict_ref:
+                    cb.setToolTip(
+                        "Spark MAX follower mode mirrors a CAN-enabled SPARK leader's voltage output."
+                    )
                 if self._field_controls_graying(dict_ref, key):
                     cb.stateChanged.connect(
-                        lambda state, k=key, d=dict_ref: (
-                            d.__setitem__(k, bool(state)),
-                            self.render_editor(),
+                        lambda state, k=key, d=dict_ref: self._on_follower_enabled_changed(
+                            d, k, bool(state)
                         )
                     )
                 else:
@@ -953,6 +990,38 @@ class MechanismEditorWindow(QMainWindow):
                     )
                 cb.setEnabled(not self._field_disabled(dict_ref, key))
                 form.addRow(label_text, cb)
+
+            elif key == "ControlDevice":
+                combo = QComboBox()
+                combo.addItems(CONTROL_DEVICE_OPTIONS)
+                combo.setCurrentText(str(value or "CTRE"))
+                combo.setStyleSheet(
+                    "QComboBox { background-color: #1E1E1E; border: 1px solid #555; "
+                    "color: white; padding: 3px; border-radius: 2px; }"
+                )
+                combo.currentTextChanged.connect(
+                    lambda text, d=dict_ref: self._on_control_device_changed(d, text)
+                )
+                form.addRow(label_text, combo)
+
+            elif key == "ControlRequest":
+                combo = QComboBox()
+                device = dict_ref.get("ControlDevice", "CTRE")
+                options = REV_CONTROL_REQUESTS if device == "REV" else CTRE_CONTROL_REQUESTS
+                combo.addItems(options)
+                current = str(value)
+                if current not in options:
+                    current = options[0]
+                    dict_ref[key] = current
+                combo.setCurrentText(current)
+                combo.setStyleSheet(
+                    "QComboBox { background-color: #1E1E1E; border: 1px solid #555; "
+                    "color: white; padding: 3px; border-radius: 2px; }"
+                )
+                combo.currentTextChanged.connect(
+                    lambda text, k=key, d=dict_ref: self.update_dict_and_tree(d, k, text)
+                )
+                form.addRow(label_text, combo)
 
             elif key in ENUM_FIELDS:
                 combo = QComboBox()
@@ -1007,6 +1076,24 @@ class MechanismEditorWindow(QMainWindow):
                     )
                 )
                 form.addRow(label_text, txt)
+
+    def _on_control_device_changed(self, control_data, device):
+        """Change the request family and select its corresponding open-loop default."""
+        control_data["ControlDevice"] = device
+        control_data["ControlRequest"] = "kDutyCycle" if device == "REV" else "DutyCycleOut"
+        self.render_editor()
+
+    def _on_follower_enabled_changed(self, follower_config, key, enabled):
+        """Toggle follower mode and keep every state target list in sync."""
+        follower_config[key] = enabled
+        mech_data = self.current_mech_data
+        if mech_data:
+            for state in mech_data.get("states", []):
+                if isinstance(state, dict):
+                    self.model.sync_state_targets(state, mech_data)
+            self.populate_tree(select_data=self.current_selection)
+        else:
+            self.render_editor()
 
     def update_list_item(self, lst, index, value):
         if 0 <= index < len(lst):

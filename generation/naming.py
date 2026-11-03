@@ -13,6 +13,7 @@ import re
 MEMBER_TYPE_SUFFIX = {
     "TalonFX": "Motor",
     "TalonFXS": "Motor",
+    "SparkMax": "Motor",
     "CANCoder": "CANcoder",
     "Solenoid": "Solenoid",
     "CANdi": "CANdi",
@@ -23,6 +24,7 @@ MEMBER_TYPE_SUFFIX = {
 HARDWARE_CPP_TYPE = {
     "Solenoid": "frc::Solenoid",
     "DigitalInput": "frc::DigitalInput",
+    "SparkMax": "rev::spark::SparkMax",
 }
 
 # Maps a control-data unit to the matching C++ units type.
@@ -30,7 +32,9 @@ UNIT_PREFIXES = {
     "double": "double",
     "turn": "wpi::units::angle::turn_t",
     "inch": "wpi::units::length::inch_t",
+    "meter": "wpi::units::length::meter_t",
     "deg": "wpi::units::angle::degree_t",
+    "rad": "wpi::units::angle::radian_t",
     "RPM": "wpi::units::angular_velocity::revolutions_per_minute_t",
     "volt": "wpi::units::voltage::volt_t",
 }
@@ -39,7 +43,9 @@ UNIT_PREFIXES = {
 UNIT_INCLUDES = {
     "turn": "wpi/units/angle.hpp",
     "inch": "wpi/units/length.hpp",
+    "meter": "wpi/units/length.hpp",
     "deg": "wpi/units/angle.hpp",
+    "rad": "wpi/units/angle.hpp",
     "RPM": "wpi/units/angular_velocity.hpp",
     "volt": "wpi/units/voltage.hpp",
 }
@@ -49,16 +55,28 @@ SHORT_UNIT_SUFFIX = {
     "double": "",
     "turn": "_tr",
     "inch": "_in",
+    "meter": "_m",
     "deg": "_deg",
+    "rad": "_rad",
     "RPM": "_rpm",
     "volt": "_V",
 }
 
 # Hardware types that are motors (drive ControlData/Slot0 logic).
-MOTOR_TYPES = ("TalonFX", "TalonFXS")
+MOTOR_TYPES = ("TalonFX", "TalonFXS", "SparkMax")
 
 # Control-request name fragments that indicate a closed-loop (PID slot) request.
-CLOSED_LOOP_KEYWORDS = ("Position", "Velocity", "MotionMagic")
+CLOSED_LOOP_KEYWORDS = ("Position", "Velocity", "MotionMagic", "SmartMotion", "MAXMotion")
+
+# REVLib Spark MAX request labels mapped to the current REVLib enum spellings.
+SPARK_MAX_CONTROL_TYPES = {
+    "kDutyCycle": "kDutyCycle",
+    "kVelocity": "kVelocity",
+    "kPosition": "kPosition",
+    # REVLib currently names this kMAXMotionPositionControl (not kSmartMotion).
+    "kSmartMotion": "kMAXMotionPositionControl",
+    "kVoltage": "kVoltage",
+}
 
 
 def pascal_case(name):

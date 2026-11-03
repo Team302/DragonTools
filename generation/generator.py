@@ -18,6 +18,7 @@ from . import naming as nm
 from .hardware import HardwareBuilder
 from .control_data import ControlDataBuilder
 from .states import StateBuilder
+from .cameras import configured_robots
 
 # Project root (the folder that contains the `generation` package). Used to
 # resolve the bundled templates regardless of the current working directory.
@@ -50,6 +51,7 @@ class DragonCodeGenerator():
             os.makedirs(self.output_dir)
 
     def generate(self, project_data):
+        configured_robots(project_data)
         global_mechanisms = self._collect_mechanisms(project_data)
         current_year = datetime.datetime.now().year
 
@@ -143,6 +145,31 @@ class DragonCodeGenerator():
             # Render the per-team control-data XML into the deploy tree.
             self._render_xml(mech_name, project_data)
 
+        self.generate_camera_configs(project_data)
+
+    def generate_camera_configs(self, project_data):
+        robots = configured_robots(project_data)
+        if not robots:
+            return []
+        directory = os.path.join(self.output_dir, "src", "main", "cpp", "vision", "definitions")
+        os.makedirs(directory, exist_ok=True)
+        common = {"year": datetime.datetime.now().year, "version": self.version}
+        written = []
+        for robot in robots:
+            for extension in ("h", "cpp"):
+                path = os.path.join(directory, f"{robot['class_name']}.{extension}")
+                self._render_and_write(
+                    f"CameraConfig.{extension}.jinja", {**common, **robot}, path
+                )
+                written.append(path)
+
+            path = os.path.join(directory, f"CameraConfigMgr.cpp")
+            self._render_and_write(
+                f"CameraConfigMgr.cpp.jinja", {**common, "robots": robots}, path
+            )
+            written.append(path)
+        return written
+
     # --- Data assembly -------------------------------------------------------
 
     def _collect_mechanisms(self, project_data):
@@ -202,11 +229,14 @@ class DragonCodeGenerator():
             "states": mech_info["states"] if mech_info["states"] else ["STATE_OFF"],
             "state_details": mech_info["state_details"],
             "hardware": hardware_list,
+            "hardware_types": {
+                name: hw_type for name, hw_type in mech_info["hardware"]
+            },
             "control_data": list(mech_info["control_data"].values()),
             "control_requests": control_requests,
             "hardware_active_targets": active_targets,
             "update_methods": self.control_data.update_methods(control_requests),
-            "motor_updates": self.control_data.motor_updates(hardware_list, active_targets),
+            "motor_updates": self.control_data.motor_updates(hardware_list, active_targets, control_requests),
             "solenoids": self.hardware.solenoids(hardware_list),
             "logging_motors": logging_data["logging_motors"],
             "cached_values": logging_data["cached_values"],
@@ -218,6 +248,11 @@ class DragonCodeGenerator():
 
     def _render_commands(self, mech_name, mech_info, template_data, cmd_dir, current_year):
         """Render the per-state command .h/.cpp files."""
+        follower_names = {
+            name
+            for (name, _hw_type), hw in mech_info.get("hardware", {}).items()
+            if hw.get("config", {}).get("Follower", {}).get("Enabled", False)
+        }
         for state in template_data["states"]:
             # Cleans "Empty Hopper" into "IntakeEmptyHopperCommand"
             cmd_name = f"{mech_name}{nm.state_class(state)}Command"
@@ -229,6 +264,12 @@ class DragonCodeGenerator():
                     "solenoid_targets": [],
                 },
             )
+            state_data = dict(state_data)
+            state_data["motor_targets"] = [
+                target
+                for target in state_data.get("motor_targets", [])
+                if (target.get("HardwareName") or target.get("hardware_name")) not in follower_names
+            ]
 
             cmd_data = {
                 "year": current_year,
