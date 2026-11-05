@@ -1,13 +1,23 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PyQt6.QtWidgets import QApplication, QComboBox
+
 from generation import DragonCodeGenerator
+from gui.mechanism_builder import MechanismEditorWindow
 from gui.model import ProjectModel
 
 
 class SparkMaxGenerationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
     def setUp(self):
         self.model = ProjectModel()
         self.model.add_robot("TEST_302", "TestBot", 302)
@@ -141,6 +151,37 @@ class SparkMaxGenerationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "selects CTRE.*requires REV"):
             self.generator.generate(self.model.project_data)
+
+    def test_control_device_switch_refreshes_without_destroying_sender(self):
+        window = MechanismEditorWindow()
+        window.model.add_robot("TEST_302", "TestBot", 302)
+        window.model.add_mechanism("TEST_302", "Intake")
+        window.current_selection = {
+            "type": "folder_cd",
+            "robot": "TEST_302",
+            "mech": "Intake",
+        }
+        window.render_editor()
+        self.app.processEvents()
+
+        device_combo = next(
+            combo
+            for combo in window.right_pane.findChildren(QComboBox)
+            if combo.findText("REV") >= 0
+        )
+        device_combo.setCurrentText("REV")
+        self.app.processEvents()
+
+        control_data = window.project_data["robots"]["TEST_302"]["mechanisms"]["Intake"]["control_data"][0]
+        self.assertEqual(control_data["ControlDevice"], "REV")
+        self.assertEqual(control_data["ControlRequest"], "kDutyCycle")
+        request_combo = next(
+            combo
+            for combo in window.right_pane.findChildren(QComboBox)
+            if combo.findText("kSmartMotion") >= 0
+        )
+        self.assertEqual(request_combo.currentText(), "kDutyCycle")
+        window.close()
 
     def test_ctre_is_default_and_generates_phoenix_control(self):
         self.model.add_hardware(self.mechanism, "TalonFX")

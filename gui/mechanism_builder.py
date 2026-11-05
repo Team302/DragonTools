@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QSplitter,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QDoubleValidator, QAction
 from generation import DragonCodeGenerator
 from .model import ProjectModel
@@ -1081,7 +1081,10 @@ class MechanismEditorWindow(QMainWindow):
         """Change the request family and select its corresponding open-loop default."""
         control_data["ControlDevice"] = device
         control_data["ControlRequest"] = "kDutyCycle" if device == "REV" else "DutyCycleOut"
-        self.render_editor()
+        # This callback is emitted by a combo box in the current editor. Rebuilding
+        # the editor synchronously would delete that combo while Qt is dispatching
+        # its signal, which can crash the application. Queue the refresh instead.
+        QTimer.singleShot(0, self.render_editor)
 
     def _on_follower_enabled_changed(self, follower_config, key, enabled):
         """Toggle follower mode and keep every state target list in sync."""
