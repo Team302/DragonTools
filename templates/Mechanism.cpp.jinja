@@ -88,7 +88,7 @@ std::map<{{ mechanism_name }}::STATE_NAMES, std::string>
 {% for robot_id, robot_data in robots.items() %}
 {%- if mechanism_name in robot_data.mechanisms %}
 {%- set team = robot_data.team_number %}
-{%- set robot_name = robot_data.name ~ robot_data.team_number %}
+{%- set robot_name = (robot_data.name | cpp_identifier) ~ robot_data.team_number %}
 void {{ mechanism_name }}::Create{{ robot_name }}()
 {
     m_ntName = "{{ mechanism_name }}";

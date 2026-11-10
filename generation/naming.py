@@ -101,6 +101,15 @@ def upper_camel_case(name):
     return pascal[0].upper() + pascal[1:] if pascal else pascal
 
 
+def cpp_identifier(name):
+    """Convert a display name to a valid UpperCamelCase C++ identifier."""
+    cleaned = re.sub(r"[^A-Za-z0-9_]+", " ", str(name)).strip()
+    identifier = upper_camel_case(cleaned)
+    if identifier and identifier[0].isdigit():
+        identifier = "Robot" + identifier
+    return identifier
+
+
 def state_parts(name):
     """Split a state display name into normalized UPPER tokens.
 

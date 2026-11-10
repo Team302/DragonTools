@@ -83,6 +83,9 @@ The generated tree looks like:
 
 ```
 output_code/
+  src/main/cpp/mechanisms/configs/
+    MechanismConfigMgr.h / .cpp       # selects the robot config by team number
+    MechanismConfig<Robot>_<Team>.h / .cpp
   src/main/cpp/mechanisms/<mech>/
     <Mech>.h / .cpp                     # subsystem
     <Mech>Container.h / .cpp            # container glue

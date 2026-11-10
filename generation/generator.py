@@ -39,6 +39,7 @@ class DragonCodeGenerator():
         self.env.filters["short_unit"] = nm.get_short_unit
         self.env.filters["camel"] = nm.camel_case
         self.env.filters["upper_camel"] = nm.upper_camel_case
+        self.env.filters["cpp_identifier"] = nm.cpp_identifier
         self.env.filters["cpp_type"] = nm.cpp_type
         self.output_dir = output_dir
 
@@ -99,6 +100,8 @@ class DragonCodeGenerator():
             os.path.join(cpp_dir, "RobotContainer.cpp"),
         )
 
+        self.generate_mechanism_configs(project_data, current_year)
+
         for mech_name, mech_info in global_mechanisms.items():
             print(f"Generating Mechanism: {mech_name}")
 
@@ -146,6 +149,87 @@ class DragonCodeGenerator():
             self._render_xml(mech_name, project_data)
 
         self.generate_camera_configs(project_data)
+
+    def generate_mechanism_configs(self, project_data, current_year=None):
+        """Generate each robot's mechanism config and the team-number dispatcher."""
+        current_year = current_year or datetime.datetime.now().year
+        robots = []
+        used_team_numbers = {}
+        used_robot_ids = set()
+        reserved_identifiers = {
+            "CHASSIS_BOT_9997": 9997,
+            "CHASSIS_BOT_9998": 9998,
+            "CHASSIS_BOT_9999": 9999,
+            "SIM_BOT_0": 0,
+        }
+
+        for robot_id, robot_data in project_data.get("robots", {}).items():
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(robot_id)):
+                raise ValueError(f"Robot ID is not a valid C++ identifier: {robot_id}")
+            robot_id_upper = str(robot_id).upper()
+            if not re.fullmatch(r"[A-Z_][A-Z0-9_]*", robot_id_upper):
+                raise ValueError(f"Robot ID is not a valid C++ enum identifier: {robot_id}")
+            if robot_id_upper in used_robot_ids:
+                raise ValueError(f"Robot IDs must be unique regardless of case: {robot_id}")
+            used_robot_ids.add(robot_id_upper)
+
+            team_number = robot_data.get("team_number")
+            if isinstance(team_number, bool) or not isinstance(team_number, int) or team_number < 0:
+                raise ValueError(f"{robot_id}: team number must be a non-negative integer.")
+            previous_robot = used_team_numbers.get(team_number)
+            if previous_robot is not None:
+                raise ValueError(
+                    f"{robot_id} and {previous_robot} share team number {team_number}; "
+                    "RobotIdentifier must distinguish mechanism configurations."
+                )
+            used_team_numbers[team_number] = robot_id
+            reserved_robot = reserved_identifiers.get(robot_id_upper)
+            if team_number in reserved_identifiers.values() and reserved_robot != team_number:
+                raise ValueError(
+                    f"{robot_id}: team number {team_number} conflicts with a reserved RobotIdentifier."
+                )
+
+            robot_name = nm.cpp_identifier(robot_data.get("name", ""))
+            if not robot_name:
+                raise ValueError(f"{robot_id}: robot name must contain at least one letter or number.")
+            class_name = f"MechanismConfig{robot_name}_{team_number}"
+            robots.append({
+                "robot_id": robot_id_upper,
+                "team_number": team_number,
+                "name": robot_name,
+                "method_name": f"{robot_name}{team_number}",
+                "class_name": class_name,
+                "mechanisms": sorted(robot_data.get("mechanisms", {}).keys()),
+            })
+
+        directory = os.path.join(
+            self.output_dir, "src", "main", "cpp", "mechanisms", "configs"
+        )
+        os.makedirs(directory, exist_ok=True)
+        common = {"year": current_year, "version": self.version}
+        for robot in robots:
+            self._render_and_write(
+                "MechanismConfigRobot.h.jinja",
+                {**common, **robot},
+                os.path.join(directory, f"{robot['class_name']}.h"),
+            )
+            self._render_and_write(
+                "MechanismConfigRobot.cpp.jinja",
+                {**common, **robot, "robots": project_data.get("robots", {})},
+                os.path.join(directory, f"{robot['class_name']}.cpp"),
+            )
+
+        self._render_and_write(
+            "MechanismConfigMgr.h.jinja",
+            common,
+            os.path.join(directory, "MechanismConfigMgr.h"),
+        )
+        self._render_and_write(
+            "MechanismConfigMgr.cpp.jinja",
+            {**common, "robots": robots},
+            os.path.join(directory, "MechanismConfigMgr.cpp"),
+        )
+        return robots
 
     def generate_camera_configs(self, project_data):
         robots = configured_robots(project_data)
