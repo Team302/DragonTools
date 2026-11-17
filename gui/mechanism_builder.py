@@ -1151,23 +1151,24 @@ class MechanismEditorWindow(QMainWindow):
         self.populate_tree(select_data=select_data)
 
     def trigger_generation(self):
-            try:
-                print("Starting code generation...") 
-                generator = DragonCodeGenerator(version=VERSION) 
-                generator.generate(self.project_data)
+        try:
+            print("Starting code generation...")
+            generator = DragonCodeGenerator(version=VERSION)
+            generator.generate(self.project_data)
 
-                # If an auton files folder is selected and contains the DTDs,
-                # copy them into deploy/auton/ with the mechanism states injected.
-                auton_dir = self.model.app_settings.get("auton_source_path", "")
-                dtds = generator.generate_auton_dtds(self.project_data, auton_dir)
+            # If an auton files folder is selected and contains the DTDs,
+            # copy them into deploy/auton/ with the mechanism states injected.
+            auton_dir = self.model.app_settings.get("auton_source_path", "")
+            dtds = generator.generate_auton_dtds(self.project_data, auton_dir)
 
-                message = "Code generated successfully!"
-                if dtds:
-                    message += (
-                        f"\n\nGenerated {len(dtds)} auton DTD(s) with mechanism "
-                        "states into deploy/auton/.\n DON'T FORGET TO UPDATE CyclePrimitives"
-                    )
-                QMessageBox.information(self, "Success", message)
-            except Exception as e:
-                print(f"Error: {e}") 
-                QMessageBox.critical(self, "Error", f"Failed to generate code:\n{str(e)}")
+            message = "Code generated successfully!"
+            if dtds:
+                message += (
+                    f"\n\nGenerated {len(dtds)} auton DTD(s) with mechanism "
+                    "states into deploy/auton/.\n DON'T FORGET TO UPDATE CyclePrimitives"
+                )
+            QMessageBox.information(self, "Success", message)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Generation failed", f"{type(e).__name__}: {e}")

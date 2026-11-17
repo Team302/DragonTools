@@ -83,6 +83,7 @@ class ProjectModel:
                         "ClosedLoopRampRate": old_config.get("ClosedLoopRamp", 0.25),
                     }
 
+
     def save_project(self, path):
         with open(path, "w") as f:
             json.dump(self.project_data, f, indent=4)
@@ -224,7 +225,7 @@ class ProjectModel:
         hardware that no longer exists are dropped, and the order follows the hardware list.
         """
         motors = [
-            hw["name"]
+            (hw["name"], hw.get("type"))
             for hw in mech_data.get("hardware", [])
             if hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"]
             and not self.is_motor_follower(hw)
@@ -238,9 +239,8 @@ class ProjectModel:
         existing_motors = {
             mt.get("HardwareName"): mt for mt in state_data.get("motor_targets", [])
         }
-        default_cd = self.default_control_data_name(mech_data)
         synced_motors = []
-        for name in motors:
+        for name, hw_type in motors:
             mt = existing_motors.get(name) or {
                 "HardwareName": name,
                 "Enabled": True,
@@ -249,9 +249,10 @@ class ProjectModel:
             mt["HardwareName"] = name
             mt.setdefault("Enabled", True)
             mt.setdefault("TargetValue", 0.0)
-            # New targets default to the mechanism's control data (PercentOut);
+            # New targets default to a control-data block from the motor's vendor;
             # existing targets keep whatever the user already chose.
-            mt.setdefault("ControlData", default_cd)
+            if "ControlData" not in mt:
+                mt["ControlData"] = self.default_control_data_name(mech_data, hw_type)
             # Mirror the unit from the selected control data (picks up later edits).
             mt["Unit"] = self.control_data_unit(mech_data, mt.get("ControlData", ""))
             synced_motors.append(mt)
@@ -281,7 +282,6 @@ class ProjectModel:
 
         hw_name = new_hw.get("name")
         hw_type = new_hw.get("type")
-        default_cd = self.default_control_data_name(mech_data)
         for st in mech_data.get("states", []):
             if isinstance(st, dict):
                 if hw_type in ["TalonFX", "TalonFXS", "SparkMax"] and not self.is_motor_follower(new_hw):
@@ -289,6 +289,7 @@ class ProjectModel:
                         st["motor_targets"] = []
                     if not any(mt.get("HardwareName") == hw_name for mt in st["motor_targets"]):
                         mt = hwd.default_motor_target(hw_name)
+                        default_cd = self.default_control_data_name(mech_data, hw_type)
                         mt["ControlData"] = default_cd
                         mt["Unit"] = self.control_data_unit(mech_data, default_cd)
                         st["motor_targets"].append(mt)
@@ -305,23 +306,43 @@ class ProjectModel:
         mech_data["control_data"].append(hwd.default_control_data())
         return len(mech_data["control_data"]) - 1
 
-    def default_control_data_name(self, mech_data):
-        """The control-data name new state targets default to.
+    def default_control_data_name(self, mech_data, hw_type=None):
+        """The control-data name a new target on ``hw_type`` defaults to.
 
-        Prefers the standard ``PercentOut`` block if present, otherwise the first
-        control-data block, otherwise an empty string.
+        Spark MAX motors need a REV block and every other motor a CTRE one.
+        Prefers the standard PercentOut block for that vendor, then any block
+        for that vendor. If none exists, one is created with a unique name.
         """
-        names = [cd.get("name", "") for cd in mech_data.get("control_data", [])]
-        if hwd.DEFAULT_CONTROL_DATA_NAME in names:
-            return hwd.DEFAULT_CONTROL_DATA_NAME
-        return names[0] if names else ""
+        want = "REV" if hw_type == "SparkMax" else "CTRE"
+        preferred = (hwd.DEFAULT_REV_CONTROL_DATA_NAME if want == "REV"
+                     else hwd.DEFAULT_CONTROL_DATA_NAME)
+        cds = mech_data.setdefault("control_data", [])
+        matching = [cd for cd in cds if cd.get("ControlDevice", "CTRE") == want]
+        for cd in matching:
+            if cd.get("name") == preferred:
+                return preferred
+        if matching:
+            return matching[0].get("name", "")
+        # No block for this vendor yet: create one without reusing a name.
+        new_cd = (hwd.default_rev_percent_out_control_data() if want == "REV"
+                  else hwd.default_percent_out_control_data())
+        taken = {cd.get("name") for cd in cds}
+        base = new_cd["name"]
+        candidate = base if base not in taken else f"{base}{want}"
+        suffix = 2
+        while candidate in taken:
+            candidate = f"{base}{want}_{suffix}"
+            suffix += 1
+        new_cd["name"] = candidate
+        cds.append(new_cd)
+        return candidate
 
     def add_state(self, mech_data):
-        default_cd = self.default_control_data_name(mech_data)
         motor_targets = []
         for hw in mech_data.get("hardware", []):
             if hw.get("type") in ["TalonFX", "TalonFXS", "SparkMax"] and not self.is_motor_follower(hw):
                 mt = hwd.default_motor_target(hw["name"])
+                default_cd = self.default_control_data_name(mech_data, hw.get("type"))
                 mt["ControlData"] = default_cd
                 mt["Unit"] = self.control_data_unit(mech_data, default_cd)
                 motor_targets.append(mt)

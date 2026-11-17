@@ -49,8 +49,11 @@ def default_control_data():
 
 
 # Name of the control-data block auto-created for every new mechanism. New
-# states default their motor targets to this block.
+# states default their CTRE motor targets to this block.
 DEFAULT_CONTROL_DATA_NAME = "PercentOut"
+
+# Name of the REV block created the first time a Spark MAX needs a default.
+DEFAULT_REV_CONTROL_DATA_NAME = "PercentOutREV"
 
 
 def default_percent_out_control_data():
@@ -58,6 +61,15 @@ def default_percent_out_control_data():
     cd = default_control_data()
     cd["name"] = DEFAULT_CONTROL_DATA_NAME
     cd["ControlRequest"] = "DutyCycleOut"
+    return cd
+
+
+def default_rev_percent_out_control_data():
+    """The default REV ``PercentOutREV`` (kDutyCycle) control-data block."""
+    cd = default_control_data()
+    cd["name"] = DEFAULT_REV_CONTROL_DATA_NAME
+    cd["ControlDevice"] = "REV"
+    cd["ControlRequest"] = "kDutyCycle"
     return cd
 
 
