@@ -48,7 +48,31 @@ class SparkMaxGenerationTests(unittest.TestCase):
         self.assertIsInstance(hardware["canbus"], int)
         self.assertEqual(hardware["config"]["MotorType"], "kBrushless")
         self.assertEqual(hardware["config"]["IdleMode"], "kBrake")
-        self.assertEqual(state["motor_targets"][0]["HardwareName"], hardware["name"])
+        target = state["motor_targets"][0]
+        self.assertEqual(target["HardwareName"], hardware["name"])
+        cds = {cd["name"]: cd for cd in self.mechanism["control_data"]}
+        self.assertEqual(cds[target["ControlData"]]["ControlDevice"], "REV")
+
+    def test_new_spark_max_mechanism_generates_without_manual_rev_setup(self):
+        self.model.add_hardware(self.mechanism, "SparkMax")
+        self.model.add_state(self.mechanism)
+        self.generator.generate(self.model.project_data)
+
+        source = (self.generated_mechanism() / "Intake.cpp").read_text()
+        self.assertIn("ControlType::kDutyCycle", source)
+
+    def test_default_blocks_never_share_a_name(self):
+        # PercentOut switched to REV leaves no CTRE block, so a TalonFX must
+        # get a new CTRE block under a different name.
+        self.select_rev_control()
+        self.model.add_hardware(self.mechanism, "TalonFX")
+        self.model.add_state(self.mechanism)
+
+        names = [cd["name"] for cd in self.mechanism["control_data"]]
+        self.assertEqual(len(names), len(set(names)))
+        target = self.mechanism["states"][0]["motor_targets"][0]
+        cds = {cd["name"]: cd for cd in self.mechanism["control_data"]}
+        self.assertEqual(cds[target["ControlData"]]["ControlDevice"], "CTRE")
 
     def test_generation_uses_revlib_constructor_config_and_duty_cycle(self):
         self.model.add_hardware(self.mechanism, "SparkMax")
@@ -84,7 +108,9 @@ class SparkMaxGenerationTests(unittest.TestCase):
         source = (self.generated_mechanism() / "Intake.cpp").read_text()
         self.assertIn("UpdateTargetSparkmax1Position(wpi::units::angle::turn_t position)", header)
         self.assertIn("ControlType::kPosition", source)
-        self.assertIn("GetEncoder().GetPosition().GetValue()", source)
+        self.assertIn("GetEncoder().GetPosition();", source)
+        self.assertNotIn("GetPosition().GetValue()", source)
+        self.assertIn("m_loggingSparkmax1PositionPath, m_cachedSparkmax1Position);", source)
 
     def test_spark_max_follower_config_and_target_exclusion(self):
         self.model.add_hardware(self.mechanism, "SparkMax")
@@ -148,6 +174,8 @@ class SparkMaxGenerationTests(unittest.TestCase):
     def test_control_device_must_match_motor_vendor(self):
         self.model.add_hardware(self.mechanism, "SparkMax")
         self.model.add_state(self.mechanism)
+        # Point the Spark MAX at the CTRE PercentOut block on purpose.
+        self.mechanism["states"][0]["motor_targets"][0]["ControlData"] = "PercentOut"
 
         with self.assertRaisesRegex(ValueError, "selects CTRE.*requires REV"):
             self.generator.generate(self.model.project_data)

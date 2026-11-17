@@ -95,13 +95,16 @@ class StateBuilder:
                 motor_var = nm.member_variable(hw)
                 entry["position_path_member"] = f"m_logging{hw_pascal}{label}Path"
                 entry["position_path"] = f"/{mech_pascal}/{hw_pascal}{label}"
-                entry["cached_value_expr"] = f"{cached_var}.value()"
+                # REVLib encoder getters return a plain double, so Spark MAX cached
+                # values are doubles with no .value()/.GetValue() unwrapping.
+                is_spark_max = hw.get("type") == "SparkMax"
+                entry["cached_value_expr"] = cached_var if is_spark_max else f"{cached_var}.value()"
                 cached_values.append({
                     "var": cached_var,
-                    "type": "double" if hw.get("type") == "SparkMax" else nm.get_unit(unit),
+                    "type": "double" if is_spark_max else nm.get_unit(unit),
                     "getter": (
-                        f"{motor_var}->GetEncoder().Get{'Velocity' if is_velocity else 'Position'}().GetValue()"
-                        if hw.get("type") == "SparkMax"
+                        f"{motor_var}->GetEncoder().Get{label}()"
+                        if is_spark_max
                         else f"{motor_var}->{getter}().GetValue()"
                     ),
                 })
