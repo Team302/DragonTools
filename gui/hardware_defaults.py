@@ -48,6 +48,15 @@ def default_control_data():
     }
 
 
+
+def default_rev_percent_out_control_data():
+    cd = default_control_data()
+    cd["name"] = "PercentOutREV"
+    cd["ControlDevice"] = "REV"
+    cd["ControlRequest"] = "kDutyCycle"
+    return cd
+
+
 # Name of the control-data block auto-created for every new mechanism. New
 # states default their motor targets to this block.
 DEFAULT_CONTROL_DATA_NAME = "PercentOut"

@@ -82,6 +82,17 @@ class ProjectModel:
                         "OpenLoopRampRate": old_config.get("OpenLoopRamp", 0.1),
                         "ClosedLoopRampRate": old_config.get("ClosedLoopRamp", 0.25),
                     }
+def default_control_data_name(self, mech_data, hw_type=None):
+    want = "REV" if hw_type == "SparkMax" else "CTRE"
+    cds = mech_data.setdefault("control_data", [])
+    for cd in cds:
+        if cd.get("ControlDevice", "CTRE") == want:
+            return cd.get("name", "")
+    # No block for this vendor yet: create one.
+    new_cd = (hwd.default_rev_percent_out_control_data() if want == "REV"
+              else hwd.default_percent_out_control_data())
+    cds.append(new_cd)
+    return new_cd["name"]
 
     def save_project(self, path):
         with open(path, "w") as f:
